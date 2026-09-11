@@ -1,0 +1,192 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: tikitaka-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root_secret
+      MYSQL_DATABASE: tikitaka
+      MYSQL_USER: tikitaka
+      MYSQL_PASSWORD: tikitaka_secret
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tikitaka-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: tikitaka-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tikitaka-net
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: tikitaka-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - tikitaka-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: tikitaka-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG4J_ROOT_LOGLEVEL: WARN
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - tikitaka-net
+
+  django-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: tikitaka-django-backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: tikitaka
+      MYSQL_USER: tikitaka
+      MYSQL_PASSWORD: tikitaka_secret
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_ENABLED: "true"
+      RUN_KAFKA_CONSUMERS: "true"
+      RUN_CELERY: "true"
+      ML_SERVICE_URL: http://python-ml:8000
+      RIOT_API_KEY: ${RIOT_API_KEY:-}
+      VALORANT_SEED_PUUID: ${VALORANT_SEED_PUUID:-}
+      LOL_SEED_PUUID: ${LOL_SEED_PUUID:-}
+      LOL_RIOT_ID: ${LOL_RIOT_ID:-}
+      LOL_RIOT_TAG: ${LOL_RIOT_TAG:-}
+      FACEIT_API_KEY: ${FACEIT_API_KEY:-}
+      FACEIT_CLIENT_ID: ${FACEIT_CLIENT_ID:-}
+      FACEIT_CLIENT_SECRET: ${FACEIT_CLIENT_SECRET:-}
+      FACEIT_REDIRECT_URI: ${FACEIT_REDIRECT_URI:-http://localhost:8080/api/v1/auth/oauth/faceit/callback}
+      CS2_FACEIT_PLAYER_ID: ${CS2_FACEIT_PLAYER_ID:-}
+      CS2_STEAM_ID: ${CS2_STEAM_ID:-}
+      TIKITAKA_INGESTION_CRON: "${TIKITAKA_INGESTION_CRON:-0 */2 * * * *}"
+      JWT_SECRET: ${JWT_SECRET:-VGhpc0lzQVNlY3VyZUtleUZvclRpa2lUYWthQWlKd3RUb2tlbkVuY29kaW5nMTIzNDU2Nzg=}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
+      OAUTH_TOKEN_ENCRYPTION_KEY: ${OAUTH_TOKEN_ENCRYPTION_KEY:-}
+      OAUTH_FRONTEND_REDIRECT_URL: ${OAUTH_FRONTEND_REDIRECT_URL:-http://localhost:3000/auth/callback}
+      OAUTH_LINK_REDIRECT_URL: ${OAUTH_LINK_REDIRECT_URL:-http://localhost:3000/settings/accounts}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://localhost}
+      OAUTH_FRONTEND_LOGIN_URL: ${OAUTH_FRONTEND_LOGIN_URL:-http://localhost:3000/login}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      PORT: "8080"
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-noreply@tikitaka.local}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8080/api/v1/auth/oauth/google/callback}
+      RIOT_CLIENT_ID: ${RIOT_CLIENT_ID:-}
+      RIOT_CLIENT_SECRET: ${RIOT_CLIENT_SECRET:-}
+      RIOT_REDIRECT_URI: ${RIOT_REDIRECT_URI:-http://localhost:8080/api/v1/auth/oauth/riot/callback}
+      RIOT_DEFAULT_REGION: ${RIOT_DEFAULT_REGION:-americas}
+      STEAM_API_KEY: ${STEAM_API_KEY:-}
+      STEAM_REALM: ${STEAM_REALM:-http://localhost:8080}
+      STEAM_REDIRECT_URI: ${STEAM_REDIRECT_URI:-http://localhost:8080/api/v1/auth/oauth/steam/callback}
+      TIKITAKA_USER_POLLER_CRON: "${TIKITAKA_USER_POLLER_CRON:-0 */1 * * * *}"
+      EPIC_CLIENT_ID: ${EPIC_CLIENT_ID:-}
+      EPIC_CLIENT_SECRET: ${EPIC_CLIENT_SECRET:-}
+      EPIC_REDIRECT_URI: ${EPIC_REDIRECT_URI:-http://localhost:8080/api/v1/auth/oauth/epic/callback}
+      EPIC_DEPLOYMENT_ID: ${EPIC_DEPLOYMENT_ID:-}
+      DOTA2_ACCOUNT_ID: ${DOTA2_ACCOUNT_ID:-}
+      DOTA2_STEAM_ID: ${DOTA2_STEAM_ID:-}
+      DOTA2_USE_PUBLIC_FALLBACK: ${DOTA2_USE_PUBLIC_FALLBACK:-true}
+    ports:
+      - "8080:8080"
+    networks:
+      - tikitaka-net
+
+  python-ml:
+    build:
+      context: ./ml-service
+      dockerfile: Dockerfile
+    container_name: tikitaka-python-ml
+    ports:
+      - "8000:8000"
+    networks:
+      - tikitaka-net
+
+  react-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: tikitaka-react-frontend
+    depends_on:
+      - django-backend
+    environment:
+      PORT: "80"
+      BACKEND_UPSTREAM: django-backend:8080
+    ports:
+      - "3000:80"
+    networks:
+      - tikitaka-net
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: tikitaka-nginx
+    depends_on:
+      - django-backend
+      - react-frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - tikitaka-net
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  tikitaka-net:
+    driver: bridge

@@ -11,6 +11,8 @@ urlpatterns = [
     path("auth/reset-password", views.reset_password_view),
     path("auth/logout", views.logout),
     path("auth/me", views.me),
+    path("auth/link/riot/by-id", views.link_riot_by_id),
+    path("auth/link/faceit/by-nickname", views.link_faceit_by_nickname),
     path("auth/link/<str:provider>", views.link_provider),
     path("auth/oauth/providers", views.oauth_providers),
     path("auth/oauth/providers/status", views.oauth_provider_status),

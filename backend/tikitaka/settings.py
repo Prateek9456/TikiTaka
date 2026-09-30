@@ -20,7 +20,7 @@ DEBUG = os.environ.get("DEBUG", "false").lower() in ("1", "true", "yes")
 
 ALLOWED_HOSTS = [
     h.strip()
-    for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,java-backend,django-backend").split(",")
+    for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,django-backend").split(",")
     if h.strip()
 ]
 
@@ -93,26 +93,34 @@ DATABASES = {
 
 AUTH_USER_MODEL = "accounts.User"
 
-CACHES = {
-    "default": {
+_REDIS_LOCATION = (
+    f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:"
+    f"{os.environ.get('REDIS_PORT', '6379')}/0"
+)
+_REDIS_OPTIONS = {
+    "CLIENT_CLASS": "django_redis.client.DefaultClient",
+    "PASSWORD": os.environ.get("REDIS_PASSWORD") or None,
+}
+
+
+def _redis_cache(key_prefix: str, timeout: int) -> dict:
+    return {
         "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": (
-            f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:"
-            f"{os.environ.get('REDIS_PORT', '6379')}/0"
-        ),
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "PASSWORD": os.environ.get("REDIS_PASSWORD") or None,
-        },
-        "KEY_PREFIX": "tikitaka",
-        "TIMEOUT": 900,
-    },
-    "games": {"TIMEOUT": 3600},
-    "player_stats": {"TIMEOUT": 600},
-    "match_analysis": {"TIMEOUT": 1800},
-    "patterns": {"TIMEOUT": 1200},
-    "team_patterns": {"TIMEOUT": 1200},
-    "leaderboard": {"TIMEOUT": 300},
+        "LOCATION": _REDIS_LOCATION,
+        "OPTIONS": _REDIS_OPTIONS,
+        "KEY_PREFIX": key_prefix,
+        "TIMEOUT": timeout,
+    }
+
+
+CACHES = {
+    "default": _redis_cache("tikitaka", 900),
+    "games": _redis_cache("tikitaka:games", 3600),
+    "player_stats": _redis_cache("tikitaka:player_stats", 600),
+    "match_analysis": _redis_cache("tikitaka:match_analysis", 1800),
+    "patterns": _redis_cache("tikitaka:patterns", 1200),
+    "team_patterns": _redis_cache("tikitaka:team_patterns", 1200),
+    "leaderboard": _redis_cache("tikitaka:leaderboard", 300),
 }
 
 LANGUAGE_CODE = "en-us"
@@ -139,13 +147,13 @@ JWT_ALGORITHM = "HS256"
 OAUTH_TOKEN_ENCRYPTION_KEY = os.environ.get("OAUTH_TOKEN_ENCRYPTION_KEY", "")
 
 OAUTH_FRONTEND_REDIRECT_URL = os.environ.get(
-    "OAUTH_FRONTEND_REDIRECT_URL", "http://localhost:3000/auth/callback"
+    "OAUTH_FRONTEND_REDIRECT_URL", "http://localhost/auth/callback"
 )
 OAUTH_LINK_REDIRECT_URL = os.environ.get(
-    "OAUTH_LINK_REDIRECT_URL", "http://localhost:3000/settings/accounts"
+    "OAUTH_LINK_REDIRECT_URL", "http://localhost/settings/accounts"
 )
 OAUTH_FRONTEND_LOGIN_URL = os.environ.get(
-    "OAUTH_FRONTEND_LOGIN_URL", "http://localhost:3000/login"
+    "OAUTH_FRONTEND_LOGIN_URL", "http://localhost/login"
 )
 PUBLIC_APP_URL = os.environ.get("PUBLIC_APP_URL", "").rstrip("/")
 
@@ -192,13 +200,13 @@ DEFAULT_FROM_EMAIL = os.environ.get("MAIL_FROM", "noreply@tikitaka.local")
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.environ.get(
-    "GOOGLE_REDIRECT_URI", "http://localhost:8080/api/v1/auth/oauth/google/callback"
+    "GOOGLE_REDIRECT_URI", "http://localhost/api/v1/auth/oauth/google/callback"
 )
 
 RIOT_CLIENT_ID = os.environ.get("RIOT_CLIENT_ID", "")
 RIOT_CLIENT_SECRET = os.environ.get("RIOT_CLIENT_SECRET", "")
 RIOT_REDIRECT_URI = os.environ.get(
-    "RIOT_REDIRECT_URI", "http://localhost:8080/api/v1/auth/oauth/riot/callback"
+    "RIOT_REDIRECT_URI", "http://localhost/api/v1/auth/oauth/riot/callback"
 )
 RIOT_DEFAULT_REGION = os.environ.get("RIOT_DEFAULT_REGION", "americas")
 RIOT_API_KEY = os.environ.get("RIOT_API_KEY", "")
@@ -206,20 +214,20 @@ RIOT_API_KEY = os.environ.get("RIOT_API_KEY", "")
 FACEIT_CLIENT_ID = os.environ.get("FACEIT_CLIENT_ID", "")
 FACEIT_CLIENT_SECRET = os.environ.get("FACEIT_CLIENT_SECRET", "")
 FACEIT_REDIRECT_URI = os.environ.get(
-    "FACEIT_REDIRECT_URI", "http://localhost:8080/api/v1/auth/oauth/faceit/callback"
+    "FACEIT_REDIRECT_URI", "http://localhost/api/v1/auth/oauth/faceit/callback"
 )
 FACEIT_API_KEY = os.environ.get("FACEIT_API_KEY", "")
 
 STEAM_API_KEY = os.environ.get("STEAM_API_KEY", "")
-STEAM_REALM = os.environ.get("STEAM_REALM", "http://localhost:8080")
+STEAM_REALM = os.environ.get("STEAM_REALM", "http://localhost")
 STEAM_REDIRECT_URI = os.environ.get(
-    "STEAM_REDIRECT_URI", "http://localhost:8080/api/v1/auth/oauth/steam/callback"
+    "STEAM_REDIRECT_URI", "http://localhost/api/v1/auth/oauth/steam/callback"
 )
 
 EPIC_CLIENT_ID = os.environ.get("EPIC_CLIENT_ID", "")
 EPIC_CLIENT_SECRET = os.environ.get("EPIC_CLIENT_SECRET", "")
 EPIC_REDIRECT_URI = os.environ.get(
-    "EPIC_REDIRECT_URI", "http://localhost:8080/api/v1/auth/oauth/epic/callback"
+    "EPIC_REDIRECT_URI", "http://localhost/api/v1/auth/oauth/epic/callback"
 )
 EPIC_DEPLOYMENT_ID = os.environ.get("EPIC_DEPLOYMENT_ID", "")
 

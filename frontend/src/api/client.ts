@@ -190,11 +190,13 @@ export async function getOAuthProviders(): Promise<import('../types/api').OAuthP
   return providers as import('../types/api').OAuthProvider[];
 }
 
-export async function getOAuthProviderStatus(): Promise<
-  Record<import('../types/api').OAuthProvider, boolean>
-> {
-  const status = await fetchApi<Record<string, boolean>>('/auth/oauth/providers/status');
-  return status as Record<import('../types/api').OAuthProvider, boolean>;
+export type OAuthProviderStatus = Record<import('../types/api').OAuthProvider, boolean> & {
+  riotIdLink?: boolean;
+  faceitNicknameLink?: boolean;
+};
+
+export async function getOAuthProviderStatus(): Promise<OAuthProviderStatus> {
+  return fetchApi<OAuthProviderStatus>('/auth/oauth/providers/status');
 }
 
 export async function forgotPassword(email: string): Promise<void> {
@@ -220,6 +222,22 @@ export async function getCurrentUser(): Promise<MeResponse> {
 export async function unlinkProvider(provider: string): Promise<void> {
   await fetchApi<null>(`/auth/link/${provider.toLowerCase()}`, {
     method: 'DELETE',
+  });
+}
+
+export async function linkRiotById(riotId: string, tag: string): Promise<import('../types/api').MeResponse> {
+  return fetchApi<import('../types/api').MeResponse>('/auth/link/riot/by-id', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ riotId, tag }),
+  });
+}
+
+export async function linkFaceitByNickname(nickname: string): Promise<import('../types/api').MeResponse> {
+  return fetchApi<import('../types/api').MeResponse>('/auth/link/faceit/by-nickname', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nickname }),
   });
 }
 

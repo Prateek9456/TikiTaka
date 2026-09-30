@@ -1,3 +1,4 @@
+import base64
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -7,10 +8,15 @@ import httpx
 from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponseRedirect
-from django.shortcuts import redirect
 
 from apps.accounts.models import OAuthProvider, User
-from apps.accounts.oauth_state import consume_link_user_id, create_state, validate_state
+from apps.accounts.oauth_state import (
+    clear_oauth_cookies,
+    consume_link_user_id,
+    create_state,
+    resolve_state_token,
+    validate_state,
+)
 from apps.accounts.services import (
     generate_unique_username,
     is_provider_configured,
@@ -30,7 +36,7 @@ RIOT_AUTH_URL = "https://auth.riotgames.com/authorize"
 RIOT_TOKEN_URL = "https://auth.riotgames.com/token"
 RIOT_USERINFO_URL = "https://auth.riotgames.com/userinfo"
 
-FACEIT_AUTH_URL = "https://accounts.faceit.com"
+FACEIT_AUTH_URL = "https://accounts.faceit.com/accounts"
 FACEIT_TOKEN_URL = "https://api.faceit.com/auth/v1/oauth/token"
 FACEIT_USERINFO_URL = "https://api.faceit.com/auth/v1/resources/userinfo"
 
@@ -51,24 +57,30 @@ def _require_configured(provider):
 
 
 def _oauth_error_redirect(error_code, message):
-    url = f"{settings.OAUTH_FRONTEND_LOGIN_URL}?error={error_code}&message={message}"
-    return HttpResponseRedirect(url)
+    response = HttpResponseRedirect(
+        f"{settings.OAUTH_FRONTEND_LOGIN_URL}?error={error_code}&message={message}"
+    )
+    clear_oauth_cookies(response)
+    return response
 
 
 def _complete_login_redirect(user):
     token = issue_token(user)["token"]
-    return HttpResponseRedirect(f"{settings.OAUTH_FRONTEND_REDIRECT_URL}?token={token}")
+    response = HttpResponseRedirect(f"{settings.OAUTH_FRONTEND_REDIRECT_URL}?token={token}")
+    clear_oauth_cookies(response)
+    return response
 
 
 def _complete_link_redirect(provider):
-    return HttpResponseRedirect(f"{settings.OAUTH_LINK_REDIRECT_URL}?linked={provider.lower()}")
+    response = HttpResponseRedirect(f"{settings.OAUTH_LINK_REDIRECT_URL}?linked={provider.lower()}")
+    clear_oauth_cookies(response)
+    return response
 
 
-def start_oauth(provider, response, link_user_id=None):
-    _require_configured(provider)
-    state = create_state(response, link_user_id)
-
+def _oauth_authorize_url(provider, response, link_user_id=None):
+    """Set OAuth state cookies on ``response`` and return the provider authorize URL."""
     if provider == OAuthProvider.GOOGLE:
+        state = create_state(response, link_user_id)
         params = {
             "client_id": settings.GOOGLE_CLIENT_ID,
             "redirect_uri": settings.GOOGLE_REDIRECT_URI,
@@ -78,9 +90,10 @@ def start_oauth(provider, response, link_user_id=None):
             "access_type": "offline",
             "prompt": "consent",
         }
-        return HttpResponseRedirect(f"{GOOGLE_AUTH_URL}?{urlencode(params)}")
+        return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
 
     if provider == OAuthProvider.RIOT:
+        state = create_state(response, link_user_id)
         params = {
             "client_id": settings.RIOT_CLIENT_ID,
             "redirect_uri": settings.RIOT_REDIRECT_URI,
@@ -88,19 +101,22 @@ def start_oauth(provider, response, link_user_id=None):
             "scope": "openid cpid",
             "state": state,
         }
-        return HttpResponseRedirect(f"{RIOT_AUTH_URL}?{urlencode(params)}")
+        return f"{RIOT_AUTH_URL}?{urlencode(params)}"
 
     if provider == OAuthProvider.FACEIT:
+        state = create_state(response, link_user_id)
         params = {
+            "response_type": "code",
             "client_id": settings.FACEIT_CLIENT_ID,
             "redirect_uri": settings.FACEIT_REDIRECT_URI,
-            "response_type": "code",
             "scope": "openid profile",
             "state": state,
+            "redirect_popup": "true",
         }
-        return HttpResponseRedirect(f"{FACEIT_AUTH_URL}?{urlencode(params)}")
+        return f"{FACEIT_AUTH_URL}?{urlencode(params)}"
 
     if provider == OAuthProvider.EPIC:
+        state = create_state(response, link_user_id)
         params = {
             "client_id": settings.EPIC_CLIENT_ID,
             "redirect_uri": settings.EPIC_REDIRECT_URI,
@@ -108,9 +124,10 @@ def start_oauth(provider, response, link_user_id=None):
             "scope": "basic_profile",
             "state": state,
         }
-        return HttpResponseRedirect(f"{EPIC_AUTH_URL}?{urlencode(params)}")
+        return f"{EPIC_AUTH_URL}?{urlencode(params)}"
 
     if provider == OAuthProvider.STEAM:
+        create_state(response, link_user_id)
         params = {
             "openid.ns": "http://specs.openid.net/auth/2.0",
             "openid.mode": "checkid_setup",
@@ -119,13 +136,41 @@ def start_oauth(provider, response, link_user_id=None):
             "openid.identity": "http://specs.openid.net/auth/2.0/identifier_select",
             "openid.claimed_id": "http://specs.openid.net/auth/2.0/identifier_select",
         }
-        return HttpResponseRedirect(f"{STEAM_OPENID_URL}?{urlencode(params)}")
+        return f"{STEAM_OPENID_URL}?{urlencode(params)}"
 
     raise TikitakaException(f"Unknown provider: {provider}", 400, "INVALID_PROVIDER")
 
 
-def _exchange_code(token_url, data):
-    resp = httpx.post(token_url, data=data, timeout=15.0)
+def start_oauth(provider, link_user_id=None):
+    _require_configured(provider)
+    response = HttpResponseRedirect("/")
+    response["Location"] = _oauth_authorize_url(provider, response, link_user_id)
+    return response
+
+
+def prepare_oauth_link_start(provider, link_user_id):
+    """
+    Build provider authorize URL and OAuth state cookies for account linking.
+
+    Returns (redirect_url, cookie_carrier) where cookie_carrier is an HttpResponse
+    whose cookies must be copied onto the API response (link flow cannot use 302
+    from XHR because browsers hide cross-origin redirect targets).
+    """
+    from django.http import HttpResponse
+
+    _require_configured(provider)
+    cookie_carrier = HttpResponse()
+    redirect_url = _oauth_authorize_url(provider, cookie_carrier, link_user_id)
+    return redirect_url, cookie_carrier
+
+
+def _basic_auth_header(client_id, client_secret):
+    token = base64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+    return {"Authorization": f"Basic {token}"}
+
+
+def _exchange_code(token_url, data, headers=None):
+    resp = httpx.post(token_url, data=data, headers=headers or {}, timeout=15.0)
     if resp.status_code != 200:
         raise TikitakaException("OAuth token exchange failed", 400, "OAUTH_FAILED")
     return resp.json()
@@ -139,9 +184,9 @@ def _fetch_userinfo(url, access_token):
 
 
 @transaction.atomic
-def handle_google_callback(code, state, request, response):
-    validate_state(state, request, response)
-    link_user_id = consume_link_user_id(request, response)
+def handle_google_callback(code, state, request):
+    validate_state(state, request)
+    link_user_id = consume_link_user_id(request)
 
     token_data = _exchange_code(
         GOOGLE_TOKEN_URL,
@@ -182,9 +227,9 @@ def handle_google_callback(code, state, request, response):
 
 
 @transaction.atomic
-def handle_riot_callback(code, state, request, response):
-    validate_state(state, request, response)
-    link_user_id = consume_link_user_id(request, response)
+def handle_riot_callback(code, state, request):
+    validate_state(state, request)
+    link_user_id = consume_link_user_id(request)
 
     token_data = _exchange_code(
         RIOT_TOKEN_URL,
@@ -223,19 +268,18 @@ def handle_riot_callback(code, state, request, response):
 
 
 @transaction.atomic
-def handle_faceit_callback(code, state, request, response):
-    validate_state(state, request, response)
-    link_user_id = consume_link_user_id(request, response)
+def handle_faceit_callback(code, state, request):
+    validate_state(state, request)
+    link_user_id = consume_link_user_id(request)
 
     token_data = _exchange_code(
         FACEIT_TOKEN_URL,
         {
             "code": code,
-            "client_id": settings.FACEIT_CLIENT_ID,
-            "client_secret": settings.FACEIT_CLIENT_SECRET,
             "redirect_uri": settings.FACEIT_REDIRECT_URI,
             "grant_type": "authorization_code",
         },
+        headers=_basic_auth_header(settings.FACEIT_CLIENT_ID, settings.FACEIT_CLIENT_SECRET),
     )
     userinfo = _fetch_userinfo(FACEIT_USERINFO_URL, token_data["access_token"])
     sub = userinfo.get("sub") or userinfo.get("guid")
@@ -265,19 +309,23 @@ def handle_faceit_callback(code, state, request, response):
 
 
 @transaction.atomic
-def handle_epic_callback(code, state, request, response):
-    validate_state(state, request, response)
-    link_user_id = consume_link_user_id(request, response)
+def handle_epic_callback(code, state, request):
+    validate_state(state, request)
+    link_user_id = consume_link_user_id(request)
+
+    epic_data = {
+        "code": code,
+        "redirect_uri": settings.EPIC_REDIRECT_URI,
+        "grant_type": "authorization_code",
+        "scope": "basic_profile",
+    }
+    if settings.EPIC_DEPLOYMENT_ID:
+        epic_data["deployment_id"] = settings.EPIC_DEPLOYMENT_ID
 
     token_data = _exchange_code(
         EPIC_TOKEN_URL,
-        {
-            "code": code,
-            "client_id": settings.EPIC_CLIENT_ID,
-            "client_secret": settings.EPIC_CLIENT_SECRET,
-            "redirect_uri": settings.EPIC_REDIRECT_URI,
-            "grant_type": "authorization_code",
-        },
+        epic_data,
+        headers=_basic_auth_header(settings.EPIC_CLIENT_ID, settings.EPIC_CLIENT_SECRET),
     )
     userinfo = _fetch_userinfo(EPIC_USERINFO_URL, token_data["access_token"])
     sub = userinfo.get("sub")
@@ -324,8 +372,9 @@ def _verify_steam_openid(request):
 
 
 def _fetch_steam_profile(steam_id):
+    email = f"steam-{steam_id}@linked.tikitaka"
     if not settings.STEAM_API_KEY:
-        return None, f"steam-{steam_id}@linked.tikitaka"
+        return None, None, email
     resp = httpx.get(
         "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/",
         params={"key": settings.STEAM_API_KEY, "steamids": steam_id},
@@ -334,30 +383,31 @@ def _fetch_steam_profile(steam_id):
     data = resp.json()
     players = data.get("response", {}).get("players", [])
     if players:
-        p = players[0]
-        return p.get("personaname"), p.get("avatarfull")
-    return None, f"steam-{steam_id}@linked.tikitaka"
+        player = players[0]
+        return player.get("personaname"), player.get("avatarfull"), email
+    return None, None, email
 
 
 @transaction.atomic
-def handle_steam_callback(request, response):
-    state = request.GET.get("state") or request.COOKIES.get("oauth_state", "")
-    if state:
-        validate_state(state, request, response)
-    link_user_id = consume_link_user_id(request, response)
+def handle_steam_callback(request):
+    state = resolve_state_token(request)
+    if not state:
+        raise TikitakaException("Missing OAuth callback parameters", 400, "OAUTH_CALLBACK_INVALID")
+    validate_state(state, request)
+    link_user_id = consume_link_user_id(request)
 
     steam_id = _verify_steam_openid(request)
-    display_name, email = _fetch_steam_profile(steam_id)
-    if not email:
-        email = f"steam-{steam_id}@linked.tikitaka"
+    display_name, avatar_url, email = _fetch_steam_profile(steam_id)
 
     if link_user_id:
         user = User.objects.get(id=link_user_id)
-        link_account(user, OAuthProvider.STEAM, steam_id, email, display_name, None, None, None, None)
+        link_account(user, OAuthProvider.STEAM, steam_id, email, display_name, avatar_url, None, None, None)
         _link_steam_game_accounts(user, steam_id)
         return _complete_link_redirect("steam")
 
-    user = _find_or_create_oauth_user(OAuthProvider.STEAM, steam_id, email, display_name, None, None, None, None)
+    user = _find_or_create_oauth_user(
+        OAuthProvider.STEAM, steam_id, email, display_name, avatar_url, None, None, None
+    )
     _link_steam_game_accounts(user, steam_id)
     record_login(user, OAuthProvider.STEAM, request)
     return _complete_login_redirect(user)

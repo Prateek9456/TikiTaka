@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from django.conf import settings
 from django.middleware.csrf import get_token
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.decorators import api_view
@@ -12,12 +13,15 @@ from apps.accounts.oauth_service import (
     handle_google_callback,
     handle_riot_callback,
     handle_steam_callback,
+    prepare_oauth_link_start,
     start_oauth,
 )
 from apps.accounts.services import (
     get_current_user,
     get_oauth_provider_status,
     get_oauth_providers,
+    link_faceit_cs2_by_nickname,
+    link_riot_games_by_riot_id,
     login_user,
     record_logout,
     register_user,
@@ -102,6 +106,19 @@ def _parse_provider(provider_str):
         raise TikitakaException(f"Unknown OAuth provider: {provider_str}", 400, "INVALID_PROVIDER")
 
 
+def _apply_oauth_cookies(api_response, cookie_carrier):
+    for cookie in cookie_carrier.cookies.values():
+        api_response.set_cookie(
+            cookie.key,
+            cookie.value,
+            max_age=int(cookie.get("max-age") or 600),
+            httponly=True,
+            secure=settings.COOKIE_SECURE,
+            samesite=settings.COOKIE_SAMESITE,
+            path="/",
+        )
+
+
 @api_view(["POST", "DELETE"])
 def link_provider(request, provider):
     user = require_user(request)
@@ -109,7 +126,29 @@ def link_provider(request, provider):
     if request.method == "DELETE":
         unlink_account(user.id, oauth_provider.value)
         return api_success(None, f"{oauth_provider.value} unlinked successfully")
-    return start_oauth(oauth_provider, request._request, link_user_id=user.id)
+    redirect_url, cookie_carrier = prepare_oauth_link_start(oauth_provider, user.id)
+    response = api_success({"redirectUrl": redirect_url})
+    _apply_oauth_cookies(response, cookie_carrier)
+    return response
+
+
+@api_view(["POST"])
+def link_riot_by_id(request):
+    user = require_user(request)
+    data = request.data
+    link_riot_games_by_riot_id(
+        user.id,
+        data.get("riotId") or data.get("gameName"),
+        data.get("tag") or data.get("tagLine"),
+    )
+    return api_success(get_current_user(user.email), "Valorant and LoL linked via Riot ID")
+
+
+@api_view(["POST"])
+def link_faceit_by_nickname(request):
+    user = require_user(request)
+    link_faceit_cs2_by_nickname(user.id, request.data.get("nickname"))
+    return api_success(get_current_user(user.email), "Faceit CS2 profile linked")
 
 
 @api_view(["DELETE"])
@@ -123,7 +162,7 @@ def unlink_provider(request, provider):
 @api_view(["GET"])
 def oauth_start(request, provider):
     oauth_provider = _parse_provider(provider)
-    return start_oauth(oauth_provider, request._request)
+    return start_oauth(oauth_provider)
 
 
 @api_view(["GET"])
@@ -137,15 +176,15 @@ def oauth_callback(request, provider):
         state = request.GET.get("state", "")
 
         if oauth_provider == OAuthProvider.GOOGLE:
-            return handle_google_callback(request.GET.get("code"), state, request, request._request)
+            return handle_google_callback(request.GET.get("code"), state, request)
         if oauth_provider == OAuthProvider.RIOT:
-            return handle_riot_callback(request.GET.get("code"), state, request, request._request)
+            return handle_riot_callback(request.GET.get("code"), state, request)
         if oauth_provider == OAuthProvider.FACEIT:
-            return handle_faceit_callback(request.GET.get("code"), state, request, request._request)
+            return handle_faceit_callback(request.GET.get("code"), state, request)
         if oauth_provider == OAuthProvider.EPIC:
-            return handle_epic_callback(request.GET.get("code"), state, request, request._request)
+            return handle_epic_callback(request.GET.get("code"), state, request)
         if oauth_provider == OAuthProvider.STEAM:
-            return handle_steam_callback(request, request._request)
+            return handle_steam_callback(request)
     except TikitakaException as exc:
         return _oauth_error_redirect(exc.code, exc.message)
     except Exception as exc:

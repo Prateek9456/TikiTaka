@@ -288,7 +288,89 @@ def get_oauth_providers():
 
 
 def get_oauth_provider_status():
-    return {p.value: is_provider_configured(p) for p in OAuthProvider}
+    status = {p.value: is_provider_configured(p) for p in OAuthProvider}
+    status["riotIdLink"] = bool(settings.RIOT_API_KEY)
+    status["faceitNicknameLink"] = bool(settings.FACEIT_API_KEY)
+    return status
+
+
+def link_riot_games_by_riot_id(user_id, game_name, tag_line):
+    import httpx
+    from apps.accounts.models import UserGameAccount
+    from apps.games.models import Game
+    from apps.ingestion.clients import RiotApiClient
+
+    if not settings.RIOT_API_KEY:
+        raise TikitakaException("Riot API key is not configured", 503, "RIOT_API_NOT_CONFIGURED")
+
+    game_name = (game_name or "").strip()
+    tag_line = (tag_line or "").strip()
+    if not game_name or not tag_line:
+        raise TikitakaException("Riot ID and tag are required", 400, "VALIDATION_ERROR")
+
+    client = RiotApiClient()
+    try:
+        account = client.get_lol_account_by_riot_id(game_name, tag_line)
+    except httpx.HTTPStatusError:
+        raise TikitakaException(
+            "Could not resolve that Riot ID. Check the name, tag, and region (RIOT_DEFAULT_REGION).",
+            400,
+            "RIOT_ID_NOT_FOUND",
+        )
+
+    puuid = account.get("puuid")
+    if not puuid:
+        raise TikitakaException("Riot account response missing PUUID", 400, "RIOT_ID_NOT_FOUND")
+
+    for game_id in (3, 4):
+        game = Game.objects.filter(id=game_id).first()
+        if game:
+            UserGameAccount.objects.update_or_create(
+                user_id=user_id,
+                game=game,
+                defaults={
+                    "external_player_id": puuid,
+                    "metadata": {
+                        "region": settings.RIOT_DEFAULT_REGION,
+                        "riot-id": f"{game_name}#{tag_line}",
+                    },
+                },
+            )
+
+
+def link_faceit_cs2_by_nickname(user_id, nickname):
+    import httpx
+    from apps.accounts.models import UserGameAccount
+    from apps.games.models import Game
+    from apps.ingestion.clients import FaceitClient
+
+    if not settings.FACEIT_API_KEY:
+        raise TikitakaException("Faceit API key is not configured", 503, "FACEIT_API_NOT_CONFIGURED")
+
+    nickname = (nickname or "").strip()
+    if not nickname:
+        raise TikitakaException("Faceit nickname is required", 400, "VALIDATION_ERROR")
+
+    client = FaceitClient()
+    try:
+        player = client.get_player_by_nickname(nickname)
+    except httpx.HTTPStatusError:
+        raise TikitakaException("Faceit player not found", 400, "FACEIT_PLAYER_NOT_FOUND")
+
+    player_id = player.get("player_id")
+    if not player_id:
+        raise TikitakaException("Faceit player response missing player_id", 400, "FACEIT_PLAYER_NOT_FOUND")
+
+    game = Game.objects.filter(id=2).first()
+    if game:
+        UserGameAccount.objects.update_or_create(
+            user_id=user_id,
+            game=game,
+            defaults={
+                "external_player_id": player_id,
+                "metadata": {"faceit-id": player_id, "nickname": nickname},
+            },
+        )
 
 
 def is_provider_configured(provider):

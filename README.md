@@ -1,99 +1,106 @@
-# TikiTaka AI (Django Backend)
+# TikiTaka AI
 
-Django port of the TikiTaka AI platform. Same frontend, ML service, database schema, and API contracts as the original Spring Boot version — only the backend framework changed.
+TikiTaka AI is a full-stack platform for competitive gaming analytics: users sign in, link game accounts, ingest match data from official APIs, and explore patterns and match insights powered by a dedicated ML service.
 
-## Stack
+## Architecture
 
-| Layer | Technology |
-|-------|------------|
-| Backend | Python 3.12, Django 5, Django REST Framework |
-| Frontend | React + Vite (unchanged) |
-| ML Service | Python FastAPI (unchanged) |
-| Database | MySQL 8 |
-| Cache / OAuth state | Redis 7 |
-| Message broker | Kafka (Confluent 7.5) |
-| Task scheduler | Celery + django-celery-beat |
-| Reverse proxy | Nginx |
+```
+Browser → Nginx → React (SPA)     UI
+              → Django REST API   Auth, games, matches, ingestion triggers
+                    ↓
+              MySQL               Primary data store
+              Redis               Cache, OAuth state, Celery broker
+              Kafka               Async match-event pipeline
+              Celery              Scheduled ingestion and background jobs
+              FastAPI (ML)        Pattern detection and analysis
+```
 
-## Quick Start
+| Component | Role |
+|-----------|------|
+| **frontend** | React + Vite SPA |
+| **backend** | Django 5 + DRF, JWT/CSRF auth, OAuth providers |
+| **ml-service** | FastAPI inference and analytics |
+| **nginx** | Single entry on port 80: `/api` and `/actuator` → API, `/` → UI |
+
+API base path: `/api/v1`. Responses use a standard envelope: `{ success, message?, data, error?, timestamp }`.
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
+- Optional for local backend-only dev: Python 3.12, Node.js (see frontend `package.json`)
+
+## Run locally (recommended)
 
 ```bash
 cp .env.example .env
-# Edit .env with your API keys and OAuth credentials
+# Set secrets and provider keys in .env (see below)
 
 docker compose up --build
 ```
 
-| Service | URL |
-|---------|-----|
-| Frontend | http://localhost:3000 |
-| Django API | http://localhost:8080/api/v1 |
-| ML Service | http://localhost:8000 |
-| Health check | http://localhost:8080/actuator/health |
+| URL | Service |
+|-----|---------|
+| http://localhost | App via Nginx (API + UI) |
+| http://localhost:3000 | Frontend container (direct) |
+| http://localhost:8080/api/v1 | API (direct) |
+| http://localhost:8000 | ML service |
+| http://localhost:8080/actuator/health | API health |
 
-## Local Development (without Docker)
+MySQL is exposed on host port **3307** if you need a SQL client.
 
-```bash
+## Configuration
+
+Copy `.env.example` to `.env` before first run. Important groups:
+
+- **Auth**: `JWT_SECRET` (base64, ≥256 bits), `OAUTH_TOKEN_ENCRYPTION_KEY` (base64 AES-256 for stored provider tokens)
+- **OAuth**: Google, Riot, Steam, Faceit, Epic — each needs client credentials and redirect URIs registered with the provider (defaults assume `http://localhost` through Nginx)
+- **Ingestion**: `RIOT_API_KEY`, `FACEIT_API_KEY`, optional seed IDs for demo/batch pulls; cron via `TIKITAKA_INGESTION_CRON` and `TIKITAKA_USER_POLLER_CRON`
+- **Production**: set `PUBLIC_APP_URL` to your public origin, `COOKIE_SECURE=true`, and align `CORS_ALLOWED_ORIGINS` and OAuth redirect URLs with that host
+- **Email**: SMTP vars for password-reset OTPs; without SMTP, OTPs may be logged in dev
+
+Set `KAFKA_ENABLED=false` in the backend environment if you want a synchronous in-process pipeline (advanced; default in Compose is Kafka on).
+
+## Backend development (without full stack)
+
+```powershell
 cd backend
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+.\.venv\Scripts\activate
 pip install -r requirements.txt
 
-# Start MySQL, Redis, Kafka via docker compose up mysql redis kafka zookeeper
+# Infra only:
+docker compose up -d mysql redis kafka zookeeper
 
 python manage.py migrate
 python manage.py runserver 8080
 ```
 
-## API Compatibility
+Point the frontend at `http://localhost:8080` (or use Vite proxy settings in the frontend project).
 
-All endpoints match the Spring Boot API at `/api/v1`:
-
-- **Auth**: register, login, logout, JWT, CSRF, forgot/reset password
-- **OAuth**: Google, Riot, Steam, Faceit, Epic (login + account linking)
-- **Games & Patterns**: public read endpoints
-- **Matches**: latest match analysis, leaderboard
-- **Sessions**: auth and game session history
-- **Ingestion**: manual triggers, user sync, scheduler status
-
-Response envelope: `{ success, message?, data, error?, timestamp }`
-
-## Project Structure
+## Repository layout
 
 ```
-backend/
-  tikitaka/          # Django project settings
-  apps/
-    core/            # JWT, CSRF middleware, API responses
-    accounts/        # User, OAuth, password reset
-    games/           # Games, players, patterns
-    matches/         # Matches, events, scores
-    ingestion/       # Game API clients, Kafka producer, schedulers
-    processing/      # Match normalization, Kafka consumer
-    analytics/       # ML integration, pattern detection
-    api/             # REST endpoint views
-frontend/            # React SPA (unchanged)
-ml-service/          # Python ML service (unchanged)
+backend/apps/
+  core/         Shared API utilities, JWT, CSRF
+  accounts/     Users, OAuth, password reset
+  games/        Games, players, patterns
+  matches/      Matches, events, scores
+  ingestion/    External game API clients, Kafka publish, schedulers
+  processing/   Event normalization, Kafka consumers
+  analytics/    ML service integration
+  api/          HTTP route handlers
+frontend/       React application
+ml-service/     FastAPI ML workloads
+nginx/          Reverse proxy config for Compose
 ```
 
-## Environment Variables
+## Operations notes
 
-See `.env.example` for the full list. Key variables:
+- **Migrations**: Applied on Django container start; for manual runs use `python manage.py migrate` in `backend/`.
+- **Background work**: In Compose, the Django service runs Kafka consumers and Celery when `RUN_KAFKA_CONSUMERS` and `RUN_CELERY` are enabled.
+- **Kafka topics**: `raw-match-events`, `normalized-match-events` (auto-created when broker allows).
+- **Security**: Never commit `.env`; rotate JWT and encryption keys for any shared or production deployment.
 
-- `JWT_SECRET` — base64-encoded HMAC key (min 256 bits)
-- `OAUTH_TOKEN_ENCRYPTION_KEY` — base64 AES-256 key for provider tokens
-- `*_CLIENT_ID/SECRET/REDIRECT_URI` — per OAuth provider
-- `RIOT_API_KEY`, `FACEIT_API_KEY` — game API keys for ingestion
-- `KAFKA_ENABLED` — set `false` for synchronous in-process pipeline
+## License
 
-## Migration from Spring Boot
-
-This repo is a drop-in replacement for the Java backend:
-
-1. Same MySQL schema (Django migrations recreate Flyway tables)
-2. Same JWT format (email subject, `ROLE_*` authorities)
-3. Same BCrypt password hashes
-4. Same OAuth redirect URLs and cookie names
-5. Same Kafka topics: `raw-match-events`, `normalized-match-events`
-
-The existing React frontend works without changes.
+See repository license file if present; otherwise treat as private project material.

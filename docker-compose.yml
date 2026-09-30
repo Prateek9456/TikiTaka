@@ -74,6 +74,9 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
     container_name: tikitaka-django-backend
     depends_on:
       mysql:
@@ -103,17 +106,17 @@ services:
       FACEIT_API_KEY: ${FACEIT_API_KEY:-}
       FACEIT_CLIENT_ID: ${FACEIT_CLIENT_ID:-}
       FACEIT_CLIENT_SECRET: ${FACEIT_CLIENT_SECRET:-}
-      FACEIT_REDIRECT_URI: ${FACEIT_REDIRECT_URI:-http://localhost:8080/api/v1/auth/oauth/faceit/callback}
+      FACEIT_REDIRECT_URI: ${FACEIT_REDIRECT_URI:-http://localhost/api/v1/auth/oauth/faceit/callback}
       CS2_FACEIT_PLAYER_ID: ${CS2_FACEIT_PLAYER_ID:-}
       CS2_STEAM_ID: ${CS2_STEAM_ID:-}
       TIKITAKA_INGESTION_CRON: "${TIKITAKA_INGESTION_CRON:-0 */2 * * * *}"
       JWT_SECRET: ${JWT_SECRET:-VGhpc0lzQVNlY3VyZUtleUZvclRpa2lUYWthQWlKd3RUb2tlbkVuY29kaW5nMTIzNDU2Nzg=}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
       OAUTH_TOKEN_ENCRYPTION_KEY: ${OAUTH_TOKEN_ENCRYPTION_KEY:-}
-      OAUTH_FRONTEND_REDIRECT_URL: ${OAUTH_FRONTEND_REDIRECT_URL:-http://localhost:3000/auth/callback}
-      OAUTH_LINK_REDIRECT_URL: ${OAUTH_LINK_REDIRECT_URL:-http://localhost:3000/settings/accounts}
+      OAUTH_FRONTEND_REDIRECT_URL: ${OAUTH_FRONTEND_REDIRECT_URL:-http://localhost/auth/callback}
+      OAUTH_LINK_REDIRECT_URL: ${OAUTH_LINK_REDIRECT_URL:-http://localhost/settings/accounts}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://localhost}
-      OAUTH_FRONTEND_LOGIN_URL: ${OAUTH_FRONTEND_LOGIN_URL:-http://localhost:3000/login}
+      OAUTH_FRONTEND_LOGIN_URL: ${OAUTH_FRONTEND_LOGIN_URL:-http://localhost/login}
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       PORT: "8080"
@@ -124,18 +127,18 @@ services:
       MAIL_FROM: ${MAIL_FROM:-noreply@tikitaka.local}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8080/api/v1/auth/oauth/google/callback}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost/api/v1/auth/oauth/google/callback}
       RIOT_CLIENT_ID: ${RIOT_CLIENT_ID:-}
       RIOT_CLIENT_SECRET: ${RIOT_CLIENT_SECRET:-}
-      RIOT_REDIRECT_URI: ${RIOT_REDIRECT_URI:-http://localhost:8080/api/v1/auth/oauth/riot/callback}
+      RIOT_REDIRECT_URI: ${RIOT_REDIRECT_URI:-http://localhost/api/v1/auth/oauth/riot/callback}
       RIOT_DEFAULT_REGION: ${RIOT_DEFAULT_REGION:-americas}
       STEAM_API_KEY: ${STEAM_API_KEY:-}
-      STEAM_REALM: ${STEAM_REALM:-http://localhost:8080}
-      STEAM_REDIRECT_URI: ${STEAM_REDIRECT_URI:-http://localhost:8080/api/v1/auth/oauth/steam/callback}
+      STEAM_REALM: ${STEAM_REALM:-http://localhost}
+      STEAM_REDIRECT_URI: ${STEAM_REDIRECT_URI:-http://localhost/api/v1/auth/oauth/steam/callback}
       TIKITAKA_USER_POLLER_CRON: "${TIKITAKA_USER_POLLER_CRON:-0 */1 * * * *}"
       EPIC_CLIENT_ID: ${EPIC_CLIENT_ID:-}
       EPIC_CLIENT_SECRET: ${EPIC_CLIENT_SECRET:-}
-      EPIC_REDIRECT_URI: ${EPIC_REDIRECT_URI:-http://localhost:8080/api/v1/auth/oauth/epic/callback}
+      EPIC_REDIRECT_URI: ${EPIC_REDIRECT_URI:-http://localhost/api/v1/auth/oauth/epic/callback}
       EPIC_DEPLOYMENT_ID: ${EPIC_DEPLOYMENT_ID:-}
       DOTA2_ACCOUNT_ID: ${DOTA2_ACCOUNT_ID:-}
       DOTA2_STEAM_ID: ${DOTA2_STEAM_ID:-}

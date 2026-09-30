@@ -1,5 +1,4 @@
 import base64
-import os
 import secrets
 
 from django.conf import settings
@@ -11,8 +10,11 @@ REDIS_KEY_PREFIX = "oauth:state:"
 STATE_TTL = 600  # 10 minutes
 
 
-def create_state(response, link_user_id=None):
-    state = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
+def generate_state_token():
+    return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
+
+
+def attach_oauth_state_cookies(response, state, link_user_id=None):
     payload = str(link_user_id) if link_user_id else ""
     cache.set(f"{REDIS_KEY_PREFIX}{state}", payload, STATE_TTL)
 
@@ -38,18 +40,28 @@ def create_state(response, link_user_id=None):
     return state
 
 
+def create_state(response, link_user_id=None):
+    return attach_oauth_state_cookies(response, generate_state_token(), link_user_id)
+
+
 def _read_cookie(request, name):
     return request.COOKIES.get(name)
 
 
-def validate_state(state, request, response):
+def resolve_state_token(request):
+    state = request.GET.get("state")
+    if state:
+        return state
+    return _read_cookie(request, STATE_COOKIE)
+
+
+def validate_state(state, request):
     redis_key = f"{REDIS_KEY_PREFIX}{state}"
     redis_payload = cache.get(redis_key)
     if redis_payload is not None:
         cache.delete(redis_key)
 
     cookie_state = _read_cookie(request, STATE_COOKIE)
-    response.delete_cookie(STATE_COOKIE, path="/")
 
     redis_valid = bool(state) and redis_payload is not None
     cookie_valid = cookie_state and cookie_state == state
@@ -62,9 +74,8 @@ def validate_state(state, request, response):
     request.oauth_link_user_id = link_user_id if link_user_id else None
 
 
-def consume_link_user_id(request, response):
+def consume_link_user_id(request):
     link_user_id = getattr(request, "oauth_link_user_id", None) or _read_cookie(request, LINK_USER_COOKIE)
-    response.delete_cookie(LINK_USER_COOKIE, path="/")
     if not link_user_id:
         return None
     try:
@@ -73,3 +84,8 @@ def consume_link_user_id(request, response):
         from apps.core.exceptions import TikitakaException
 
         raise TikitakaException("Invalid OAuth link session", 400, "OAUTH_LINK_INVALID")
+
+
+def clear_oauth_cookies(response):
+    response.delete_cookie(STATE_COOKIE, path="/")
+    response.delete_cookie(LINK_USER_COOKIE, path="/")

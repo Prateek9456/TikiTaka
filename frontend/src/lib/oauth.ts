@@ -3,8 +3,6 @@ import { getStoredToken } from './authStorage';
 import type { OAuthProvider } from '../types/api';
 
 const API_BASE = '/api/v1';
-const API_UNAVAILABLE =
-  'Cannot reach the API yet. The Java backend can take several minutes to start after docker compose up. Wait until it is healthy, then retry.';
 
 function apiOrigin(): string {
   const configured = import.meta.env.VITE_API_ORIGIN?.replace(/\/$/, '');
@@ -80,27 +78,6 @@ export function oauthLoginHref(provider: OAuthProvider) {
   return `${apiOrigin()}${API_BASE}/auth/oauth/${provider.toLowerCase()}`;
 }
 
-function isRedirectStatus(status: number) {
-  return status === 0 || status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
-}
-
-async function fetchOAuthRedirect(url: string, init: RequestInit = {}): Promise<Response> {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 10_000);
-  try {
-    return await fetch(url, {
-      ...init,
-      redirect: 'manual',
-      credentials: 'include',
-      signal: controller.signal,
-    });
-  } catch {
-    throw new ApiError(API_UNAVAILABLE);
-  } finally {
-    window.clearTimeout(timer);
-  }
-}
-
 export async function startOAuthLogin(provider: OAuthProvider): Promise<void> {
   window.location.assign(oauthLoginHref(provider));
 }
@@ -124,7 +101,9 @@ export async function startProviderLink(provider: OAuthProvider): Promise<void> 
   }
 
   const href = `${apiOrigin()}${API_BASE}/auth/link/${provider.toLowerCase()}`;
-  const csrfResponse = await fetch(`${API_BASE}/auth/csrf`, { credentials: 'include' });
+  const csrfResponse = await fetch(`${apiOrigin() || ''}${API_BASE}/auth/csrf`, {
+    credentials: 'include',
+  });
   let csrfToken = '';
   let csrfHeader = 'X-XSRF-TOKEN';
   try {
@@ -135,28 +114,24 @@ export async function startProviderLink(provider: OAuthProvider): Promise<void> 
     csrfToken = '';
   }
 
-  const response = await fetchOAuthRedirect(href, {
+  const response = await fetch(href, {
     method: 'POST',
+    credentials: 'include',
     headers: {
       Authorization: `Bearer ${token}`,
+      Accept: 'application/json',
       ...(csrfToken ? { [csrfHeader]: csrfToken } : {}),
     },
   });
 
-  const location = response.headers.get('Location');
-  if (location && isRedirectStatus(response.status)) {
-    window.location.href = location;
-    return;
-  }
-
-  if (response.type === 'opaqueredirect' || response.status === 0) {
-    throw new ApiError('Failed to start provider link');
-  }
-
   if (!response.ok) {
     try {
       const json = await response.json();
-      throw new ApiError(json.message ?? json.error?.message ?? 'Failed to start provider link');
+      throw new ApiError(
+        json.error?.message ?? json.message ?? 'Failed to start provider link',
+        response.status,
+        json.error?.code,
+      );
     } catch (err) {
       if (err instanceof ApiError) {
         throw err;
@@ -165,5 +140,10 @@ export async function startProviderLink(provider: OAuthProvider): Promise<void> 
     }
   }
 
-  throw new ApiError('Failed to start provider link');
+  const json = await response.json();
+  const redirectUrl = json.data?.redirectUrl as string | undefined;
+  if (!redirectUrl) {
+    throw new ApiError('Failed to start provider link');
+  }
+  window.location.assign(redirectUrl);
 }

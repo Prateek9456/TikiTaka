@@ -86,6 +86,16 @@ class FaceitClient:
         resp.raise_for_status()
         return resp.json()
 
+    def get_player_by_nickname(self, nickname):
+        resp = httpx.get(
+            f"{FACEIT_BASE}/players",
+            params={"nickname": nickname},
+            headers=self.headers,
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def get_match_history(self, player_id, limit=5):
         resp = httpx.get(
             f"{FACEIT_BASE}/players/{player_id}/history",

@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getOAuthProviders } from '../api/client';
+import { getOAuthProviderStatus } from '../api/client';
 import type { OAuthProvider } from '../types/api';
 
 const LOAD_RETRY_MS = 2_000;
 const MAX_LOAD_ATTEMPTS = 8;
 
+const OAUTH_PROVIDER_KEYS: OAuthProvider[] = ['GOOGLE', 'RIOT', 'STEAM', 'FACEIT', 'EPIC'];
+
 export function useOAuthProviders() {
   const [providers, setProviders] = useState<OAuthProvider[]>([]);
+  const [riotIdLink, setRiotIdLink] = useState(false);
+  const [faceitNicknameLink, setFaceitNicknameLink] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -20,11 +24,13 @@ export function useOAuthProviders() {
       }
 
       try {
-        const configured = await getOAuthProviders();
+        const status = await getOAuthProviderStatus();
         if (signal?.aborted) {
           return;
         }
-        setProviders(configured);
+        setProviders(OAUTH_PROVIDER_KEYS.filter((provider) => status[provider]));
+        setRiotIdLink(Boolean(status.riotIdLink));
+        setFaceitNicknameLink(Boolean(status.faceitNicknameLink));
         setLoadError(null);
         setLoading(false);
         return;
@@ -51,5 +57,5 @@ export function useOAuthProviders() {
     return () => controller.abort();
   }, [loadProviders]);
 
-  return { providers, loading, loadError, reload: loadProviders };
+  return { providers, riotIdLink, faceitNicknameLink, loading, loadError, reload: loadProviders };
 }

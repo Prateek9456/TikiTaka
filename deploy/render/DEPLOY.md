@@ -19,6 +19,15 @@
    - OAuth / Riot / Faceit keys as needed.
 6. Wait for all services to go green (first deploy can take 10–20 minutes on free tier).
 
+### If deploy logs show `Waiting for MySQL at mysql:3306` or port scan timeout
+
+The API never reached Gunicorn because database env vars were missing or still set to Docker Compose defaults.
+
+1. Render Dashboard → **Env Groups** → **tikitaka-data** → set **MYSQL_HOST** to your external MySQL hostname (e.g. PlanetScale, Railway, Aiven — not `mysql`).
+2. Set **MYSQL_USER**, **MYSQL_PASSWORD**, and confirm **MYSQL_DATABASE** / **MYSQL_PORT**.
+3. Ensure **tikitaka-api** is linked to **tikitaka-data** (Blueprint does this via `fromGroup`).
+4. Redeploy **tikitaka-api**. Logs should show `Waiting for MySQL at <your-host>:3306` then bind on `$PORT`.
+
 ## URLs
 
 - **App (users):** `https://tikitaka-web.onrender.com` (your actual name may differ)

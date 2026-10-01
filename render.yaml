@@ -107,16 +107,6 @@ services:
           type: web
           property: host
 
-  - type: cron
-    name: tikitaka-ingestion
-    runtime: docker
-    plan: free
-    rootDir: backend
-    dockerfilePath: Dockerfile.job
-    schedule: "0 */2 * * *"
-    envVars:
-      - fromGroup: tikitaka-data
-      - key: INGESTION_JOB
-        value: scheduled
-      - key: KAFKA_ENABLED
-        value: "false"
+# Cron jobs cannot use plan: free on Render. Scheduled ingestion is optional:
+# - OAuth login still triggers inline match sync (USE_CELERY_TASKS=false).
+# - To add cron later: New > Cron Job, Dockerfile.job, plan starter, see deploy/render/DEPLOY.md

@@ -34,6 +34,9 @@ Register redirect URIs on each provider using the **web** service URL:
 
 Unchanged: `docker compose up` with full Kafka/Celery stack.
 
-## Cron
+## Cron (optional, paid)
 
-`tikitaka-ingestion` runs every 2 hours (`INGESTION_JOB=scheduled`). Edit schedule in `render.yaml` or Dashboard.
+Render **Cron Jobs do not support the free plan** (only `starter` and above). The Blueprint skips cron so free deploy works.
+
+- **Without cron:** match sync runs when users **link OAuth** (inline sync).
+- **With cron:** Dashboard → **New** → **Cron Job** → Docker, root `backend`, `Dockerfile.job`, plan **Starter**, schedule `0 */2 * * *`, same env as API + `INGESTION_JOB=scheduled`.

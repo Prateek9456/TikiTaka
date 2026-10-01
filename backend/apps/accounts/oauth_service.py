@@ -446,9 +446,17 @@ def _find_or_create_oauth_user(provider, provider_user_id, email, display_name, 
 
 def _queue_initial_match_sync(user_id):
     try:
-        from apps.ingestion.tasks import sync_user_matches_task
+        from django.conf import settings
 
-        sync_user_matches_task.delay(user_id, limit=10)
+        if settings.USE_CELERY_TASKS:
+            from apps.ingestion.tasks import sync_user_matches_task
+
+            sync_user_matches_task.delay(user_id, limit=10)
+            return
+
+        from apps.ingestion.services import sync_user_matches
+
+        sync_user_matches(user_id, limit=10)
     except Exception as exc:
         logger.warning("Could not queue initial match sync for user %s: %s", user_id, exc)
 

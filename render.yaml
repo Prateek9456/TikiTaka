@@ -33,7 +33,7 @@ services:
     runtime: docker
     plan: free
     rootDir: backend
-    dockerfilePath: Dockerfile.cloudrun
+    dockerfilePath: Dockerfile.render
     healthCheckPath: /actuator/health
     envVars:
       - fromGroup: tikitaka-data

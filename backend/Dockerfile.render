@@ -1,0 +1,30 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    default-libmysqlclient-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+ENV PYTHONUNBUFFERED=1
+# PORT is injected by Render; default 8080 for local docker run
+ENV PORT=8080
+# Disable Kafka and Celery for the restricted Render profile
+ENV KAFKA_ENABLED=false
+ENV RUN_KAFKA_CONSUMERS=false
+ENV RUN_CELERY=false
+ENV USE_CELERY_TASKS=false
+
+EXPOSE 8080
+
+COPY entrypoint.render.sh /entrypoint.render.sh
+RUN sed -i 's/\r$//' /entrypoint.render.sh && chmod +x /entrypoint.render.sh
+
+ENTRYPOINT ["/entrypoint.render.sh"]

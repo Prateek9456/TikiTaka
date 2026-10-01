@@ -17,6 +17,24 @@ def tikitaka_exception_handler(exc, context):
     if isinstance(exc, TikitakaException):
         return api_error(exc.code, exc.message, exc.status_code, exc.field_errors)
 
+    from apps.ingestion.errors import IngestionError
+
+    if isinstance(exc, IngestionError):
+        status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        if exc.code in ("PLAYER_NOT_LINKED", "USER_ID_REQUIRED", "VALIDATION_ERROR"):
+            status_code = status.HTTP_400_BAD_REQUEST
+        if exc.code in (
+            "RIOT_API_KEY_INVALID",
+            "RIOT_VALORANT_API_FORBIDDEN",
+            "FACEIT_API_KEY_INVALID",
+            "RIOT_API_NOT_CONFIGURED",
+            "FACEIT_API_NOT_CONFIGURED",
+        ):
+            status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        if exc.code == "MATCHES_NOT_FOUND":
+            status_code = status.HTTP_404_NOT_FOUND
+        return api_error(exc.code, exc.message, status_code)
+
     from rest_framework.views import exception_handler
 
     response = exception_handler(exc, context)

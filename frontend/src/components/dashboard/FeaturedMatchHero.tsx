@@ -10,6 +10,7 @@ interface FeaturedMatchHeroProps {
   game?: Game;
   match: MatchAnalysis | null;
   loading: boolean;
+  statusError?: string | null;
   polling: boolean;
   analyzing: boolean;
   hasLinkedAccount: boolean;
@@ -29,6 +30,7 @@ export function FeaturedMatchHero({
   game,
   match,
   loading,
+  statusError,
   polling,
   analyzing,
   hasLinkedAccount,
@@ -50,6 +52,17 @@ export function FeaturedMatchHero({
           <p className="mt-1 text-sm text-ink-muted">
             {hasLinkedAccount ? 'Your most recent competitive sample' : 'Link an account to personalize this stage'}
           </p>
+          {statusError ? (
+            <p className="mt-3 max-w-xl rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+              {statusError}
+            </p>
+          ) : null}
+          {hasLinkedAccount && !match && !loading && !statusError ? (
+            <p className="mt-3 text-sm text-amber-200/90">
+              No matches in TikiTaka yet. Use refresh to pull from Riot, or confirm your dev API key is valid and{' '}
+              <code className="text-amber-100">RIOT_DEFAULT_REGION</code> matches your account (e.g. asia for AP).
+            </p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           {polling || analyzing ? <LiveBadge /> : null}

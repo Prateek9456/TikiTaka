@@ -136,12 +136,20 @@ def link_provider(request, provider):
 def link_riot_by_id(request):
     user = require_user(request)
     data = request.data
-    link_riot_games_by_riot_id(
+    match_sync, match_sync_error = link_riot_games_by_riot_id(
         user.id,
         data.get("riotId") or data.get("gameName"),
         data.get("tag") or data.get("tagLine"),
     )
-    return api_success(get_current_user(user.email), "Valorant and LoL linked via Riot ID")
+    payload = get_current_user(user.email)
+    if match_sync is not None:
+        payload = {**payload, "matchSync": match_sync}
+    if match_sync_error is not None:
+        payload = {**payload, "matchSyncError": match_sync_error}
+    message = "Valorant and LoL linked via Riot ID"
+    if match_sync_error and not match_sync:
+        message = f"Riot ID linked, but match sync failed: {match_sync_error['message']}"
+    return api_success(payload, message)
 
 
 @api_view(["POST"])
@@ -282,7 +290,8 @@ def ingest_trigger_game(request, game_slug):
     require_role(user, "ANALYST", "ADMIN")
     limit = int(request.GET.get("limit", 5))
     from apps.ingestion.services import trigger_game_ingestion
-    return api_success(trigger_game_ingestion(game_slug, limit))
+    user_id = request.data.get("userId") or user.id
+    return api_success(trigger_game_ingestion(game_slug, limit, int(user_id)))
 
 
 @api_view(["POST"])

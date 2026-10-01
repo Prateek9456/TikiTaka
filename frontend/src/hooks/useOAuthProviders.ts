@@ -10,6 +10,8 @@ const OAUTH_PROVIDER_KEYS: OAuthProvider[] = ['GOOGLE', 'RIOT', 'STEAM', 'FACEIT
 export function useOAuthProviders() {
   const [providers, setProviders] = useState<OAuthProvider[]>([]);
   const [riotIdLink, setRiotIdLink] = useState(false);
+  const [riotApiHealthy, setRiotApiHealthy] = useState(true);
+  const [riotApiStatusMessage, setRiotApiStatusMessage] = useState<string | null>(null);
   const [faceitNicknameLink, setFaceitNicknameLink] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -30,6 +32,8 @@ export function useOAuthProviders() {
         }
         setProviders(OAUTH_PROVIDER_KEYS.filter((provider) => status[provider]));
         setRiotIdLink(Boolean(status.riotIdLink));
+        setRiotApiHealthy(status.riotApiHealthy !== false);
+        setRiotApiStatusMessage(status.riotApiStatusMessage ?? null);
         setFaceitNicknameLink(Boolean(status.faceitNicknameLink));
         setLoadError(null);
         setLoading(false);
@@ -57,5 +61,14 @@ export function useOAuthProviders() {
     return () => controller.abort();
   }, [loadProviders]);
 
-  return { providers, riotIdLink, faceitNicknameLink, loading, loadError, reload: loadProviders };
+  return {
+    providers,
+    riotIdLink,
+    riotApiHealthy,
+    riotApiStatusMessage,
+    faceitNicknameLink,
+    loading,
+    loadError,
+    reload: loadProviders,
+  };
 }

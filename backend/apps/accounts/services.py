@@ -288,8 +288,14 @@ def get_oauth_providers():
 
 
 def get_oauth_provider_status():
+    from apps.ingestion.riot_api import cached_riot_api_probe
+
     status = {p.value: is_provider_configured(p) for p in OAuthProvider}
+    riot_probe = cached_riot_api_probe()
     status["riotIdLink"] = bool(settings.RIOT_API_KEY)
+    status["riotApiConfigured"] = bool(settings.RIOT_API_KEY)
+    status["riotApiHealthy"] = riot_probe.get("healthy", False)
+    status["riotApiStatusMessage"] = riot_probe.get("message", "")
     status["faceitNicknameLink"] = bool(settings.FACEIT_API_KEY)
     return status
 
@@ -298,29 +304,45 @@ def link_riot_games_by_riot_id(user_id, game_name, tag_line):
     import httpx
     from apps.accounts.models import UserGameAccount
     from apps.games.models import Game
-    from apps.ingestion.clients import RiotApiClient
+    from apps.ingestion.clients import normalize_riot_id_parts
+    from apps.ingestion.errors import IngestionError
+    from apps.ingestion.riot_api import build_riot_link_metadata, fetch_account_by_riot_id, probe_valorant_match_access
 
     if not settings.RIOT_API_KEY:
         raise TikitakaException("Riot API key is not configured", 503, "RIOT_API_NOT_CONFIGURED")
 
-    game_name = (game_name or "").strip()
-    tag_line = (tag_line or "").strip()
+    game_name, tag_line = normalize_riot_id_parts(game_name, tag_line)
     if not game_name or not tag_line:
         raise TikitakaException("Riot ID and tag are required", 400, "VALIDATION_ERROR")
 
-    client = RiotApiClient()
     try:
-        account = client.get_lol_account_by_riot_id(game_name, tag_line)
-    except httpx.HTTPStatusError:
+        account, routing_region = fetch_account_by_riot_id(
+            game_name, tag_line, settings.RIOT_DEFAULT_REGION
+        )
+    except IngestionError as exc:
+        raise TikitakaException(exc.message, 400, exc.code)
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status in (401, 403):
+            raise TikitakaException(
+                "Riot API key is invalid or expired (Riot returns HTTP "
+                f"{status}). Use the API key from developer.riotgames.com (dev key or your "
+                "registered Personal product key), set RIOT_API_KEY in .env, run "
+                "docker compose up -d django-backend, then link again.",
+                503,
+                "RIOT_API_KEY_INVALID",
+            )
         raise TikitakaException(
-            "Could not resolve that Riot ID. Check the name, tag, and region (RIOT_DEFAULT_REGION).",
-            400,
-            "RIOT_ID_NOT_FOUND",
+            f"Riot API returned an error ({status}). Try again in a few minutes.",
+            502,
+            "RIOT_API_ERROR",
         )
 
     puuid = account.get("puuid")
     if not puuid:
         raise TikitakaException("Riot account response missing PUUID", 400, "RIOT_ID_NOT_FOUND")
+
+    metadata = build_riot_link_metadata(game_name, tag_line, routing_region)
 
     for game_id in (3, 4):
         game = Game.objects.filter(id=game_id).first()
@@ -330,12 +352,36 @@ def link_riot_games_by_riot_id(user_id, game_name, tag_line):
                 game=game,
                 defaults={
                     "external_player_id": puuid,
-                    "metadata": {
-                        "region": settings.RIOT_DEFAULT_REGION,
-                        "riot-id": f"{game_name}#{tag_line}",
-                    },
+                    "metadata": metadata,
                 },
             )
+
+    from apps.ingestion.errors import IngestionError
+    from apps.ingestion.services import sync_user_matches
+
+    valorant_probe = probe_valorant_match_access(puuid, metadata)
+    match_sync_error = None
+    if not valorant_probe.get("allowed"):
+        match_sync_error = {
+            "message": valorant_probe.get("message", "Valorant match API unavailable."),
+            "code": "RIOT_VALORANT_API_FORBIDDEN"
+            if valorant_probe.get("httpStatus") == 403
+            else "RIOT_API_KEY_INVALID"
+            if valorant_probe.get("httpStatus") == 401
+            else "RIOT_VALORANT_API_ERROR",
+        }
+
+    try:
+        sync_result = sync_user_matches(user_id, limit=10)
+        if match_sync_error and sync_result.get("matchesIngested", 0) == 0:
+            return sync_result, match_sync_error
+        return sync_result, None
+    except IngestionError as exc:
+        if match_sync_error:
+            return None, match_sync_error
+        return None, {"message": exc.message, "code": exc.code}
+    except Exception as exc:
+        return None, {"message": str(exc), "code": "MATCH_SYNC_FAILED"}
 
 
 def link_faceit_cs2_by_nickname(user_id, nickname):

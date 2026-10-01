@@ -34,6 +34,7 @@ function OverviewSection() {
     linkedProviders,
     latestMatch,
     latestMatchLoading,
+    latestMatchError,
     polling,
     analyzing,
     refetchLatestMatch,
@@ -56,6 +57,7 @@ function OverviewSection() {
           game={selectedGame}
           match={latestMatch}
           loading={latestMatchLoading}
+          statusError={latestMatchError}
           polling={polling}
           analyzing={analyzing}
           hasLinkedAccount={hasLinkedAccount}

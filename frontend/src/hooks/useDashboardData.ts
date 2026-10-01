@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getGames, getLeaderboard, getLatestMatch, getPatterns } from '../api/client';
+import { ApiError, getGames, getLeaderboard, getLatestMatch, getPatterns, syncMyMatches } from '../api/client';
 import type { Game, LeaderboardEntry, MatchAnalysis, TacticalPattern } from '../types/api';
 
 interface AsyncState<T> {
@@ -107,8 +107,12 @@ export function usePersonalLatestMatch(
   const [insightsReady, setInsightsReady] = useState(false);
   const [tick, setTick] = useState(0);
   const previousMatchIdRef = useRef<number | null>(null);
+  const syncAttemptedRef = useRef(false);
 
-  const refetch = useCallback(() => setTick((n) => n + 1), []);
+  const refetch = useCallback(() => {
+    syncAttemptedRef.current = false;
+    setTick((n) => n + 1);
+  }, []);
   const dismissInsightsReady = useCallback(() => setInsightsReady(false), []);
 
   useEffect(() => {
@@ -126,6 +130,7 @@ export function usePersonalLatestMatch(
     let intervalId: ReturnType<typeof setInterval> | undefined;
     const startedAt = Date.now();
     previousMatchIdRef.current = null;
+    syncAttemptedRef.current = false;
 
     function stopPolling() {
       if (intervalId !== undefined) {
@@ -150,19 +155,43 @@ export function usePersonalLatestMatch(
       return true;
     }
 
+    async function trySyncMatches(): Promise<boolean> {
+      if (gameId === null || syncAttemptedRef.current) {
+        return false;
+      }
+      syncAttemptedRef.current = true;
+      try {
+        await syncMyMatches(gameId, 10);
+        return true;
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof ApiError ? err.message : 'Failed to sync matches from Riot');
+        }
+        return false;
+      }
+    }
+
     async function fetchMatch() {
       if (gameId === null) {
         return;
       }
 
       try {
-        const match = await getLatestMatch(gameId);
+        let match = await getLatestMatch(gameId);
+        if (!match) {
+          const synced = await trySyncMatches();
+          if (synced) {
+            match = await getLatestMatch(gameId);
+          }
+        }
         if (cancelled) {
           return;
         }
 
         setData(match);
-        setError(null);
+        if (match) {
+          setError(null);
+        }
 
         if (match) {
           const hadPrevious = previousMatchIdRef.current !== null;

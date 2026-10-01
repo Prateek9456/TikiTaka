@@ -58,7 +58,7 @@ Copy `.env.example` to `.env` before first run. Important groups:
 - **Production**: set `PUBLIC_APP_URL` to your public origin, `COOKIE_SECURE=true`, and align `CORS_ALLOWED_ORIGINS` and OAuth redirect URLs with that host
 - **Email**: SMTP vars for password-reset OTPs; without SMTP, OTPs may be logged in dev
 
-Set `KAFKA_ENABLED=false` in the backend environment if you want a synchronous in-process pipeline (advanced; default in Compose is Kafka on).
+Set `KAFKA_ENABLED=false` in the backend environment if you want a synchronous in-process pipeline (advanced; default in Compose is Kafka on). **Cloud Run:** `deploy/cloudrun/`. **Render (restricted):** root `render.yaml` + `deploy/render/DEPLOY.md`.
 
 ## Backend development (without full stack)
 

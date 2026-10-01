@@ -23,6 +23,10 @@ ALLOWED_HOSTS = [
     for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1,django-backend").split(",")
     if h.strip()
 ]
+for _host_env in ("WEB_HOSTNAME", "RENDER_EXTERNAL_HOSTNAME"):
+    _host = os.environ.get(_host_env, "").strip()
+    if _host and _host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_host)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -91,16 +95,48 @@ DATABASES = {
     }
 }
 
+_cloud_sql = os.environ.get("CLOUD_SQL_CONNECTION_NAME", "").strip()
+if _cloud_sql:
+    DATABASES["default"]["HOST"] = f"/cloudsql/{_cloud_sql}"
+    DATABASES["default"]["PORT"] = ""
+
 AUTH_USER_MODEL = "accounts.User"
 
-_REDIS_LOCATION = (
-    f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:"
-    f"{os.environ.get('REDIS_PORT', '6379')}/0"
-)
-_REDIS_OPTIONS = {
-    "CLIENT_CLASS": "django_redis.client.DefaultClient",
-    "PASSWORD": os.environ.get("REDIS_PASSWORD") or None,
-}
+
+def _redis_connection_url(db_index: int) -> str:
+    dedicated = os.environ.get(f"REDIS_URL_{db_index}", "").strip()
+    if dedicated:
+        return dedicated
+    base = os.environ.get("REDIS_URL", "").strip()
+    if base:
+        trimmed = base.rstrip("/")
+        tail = trimmed.rsplit("/", 1)[-1]
+        if tail.isdigit():
+            return f"{trimmed.rsplit('/', 1)[0]}/{db_index}"
+        return f"{trimmed}/{db_index}"
+    password = os.environ.get("REDIS_PASSWORD", "")
+    auth = f":{password}@" if password else ""
+    host = os.environ.get("REDIS_HOST", "localhost")
+    port = os.environ.get("REDIS_PORT", "6379")
+    use_tls = os.environ.get("REDIS_SSL", "").lower() in ("1", "true", "yes")
+    scheme = "rediss" if use_tls else "redis"
+    return f"{scheme}://{auth}{host}:{port}/{db_index}"
+
+
+def _redis_client_options() -> dict:
+    options: dict = {"CLIENT_CLASS": "django_redis.client.DefaultClient"}
+    redis_url = os.environ.get("REDIS_URL", "")
+    use_tls = os.environ.get("REDIS_SSL", "").lower() in ("1", "true", "yes")
+    if redis_url.startswith("rediss://") or use_tls:
+        options["CONNECTION_POOL_KWARGS"] = {"ssl_cert_reqs": None}
+    password = os.environ.get("REDIS_PASSWORD")
+    if password and not redis_url:
+        options["PASSWORD"] = password
+    return options
+
+
+_REDIS_LOCATION = _redis_connection_url(0)
+_REDIS_OPTIONS = _redis_client_options()
 
 
 def _redis_cache(key_prefix: str, timeout: int) -> dict:
@@ -146,16 +182,27 @@ JWT_ALGORITHM = "HS256"
 
 OAUTH_TOKEN_ENCRYPTION_KEY = os.environ.get("OAUTH_TOKEN_ENCRYPTION_KEY", "")
 
-OAUTH_FRONTEND_REDIRECT_URL = os.environ.get(
-    "OAUTH_FRONTEND_REDIRECT_URL", "http://localhost/auth/callback"
-)
-OAUTH_LINK_REDIRECT_URL = os.environ.get(
-    "OAUTH_LINK_REDIRECT_URL", "http://localhost/settings/accounts"
-)
-OAUTH_FRONTEND_LOGIN_URL = os.environ.get(
-    "OAUTH_FRONTEND_LOGIN_URL", "http://localhost/login"
-)
 PUBLIC_APP_URL = os.environ.get("PUBLIC_APP_URL", "").rstrip("/")
+
+
+def _origin_url(env_key: str, path_suffix: str, local_default: str) -> str:
+    override = os.environ.get(env_key, "").strip()
+    if override:
+        return override
+    if PUBLIC_APP_URL:
+        return f"{PUBLIC_APP_URL}{path_suffix}"
+    return local_default
+
+
+OAUTH_FRONTEND_REDIRECT_URL = _origin_url(
+    "OAUTH_FRONTEND_REDIRECT_URL", "/auth/callback", "http://localhost/auth/callback"
+)
+OAUTH_LINK_REDIRECT_URL = _origin_url(
+    "OAUTH_LINK_REDIRECT_URL", "/settings/accounts", "http://localhost/settings/accounts"
+)
+OAUTH_FRONTEND_LOGIN_URL = _origin_url(
+    "OAUTH_FRONTEND_LOGIN_URL", "/login", "http://localhost/login"
+)
 
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
 COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "Lax")
@@ -170,6 +217,14 @@ CORS_ALLOWED_ORIGINS = [
 ]
 if PUBLIC_APP_URL:
     CORS_ALLOWED_ORIGINS.append(PUBLIC_APP_URL)
+
+if os.environ.get("CLOUD_RUN", "").lower() in ("1", "true", "yes") or os.environ.get(
+    "RENDER", ""
+).lower() in ("1", "true", "yes"):
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    USE_X_FORWARDED_HOST = True
+
+USE_CELERY_TASKS = os.environ.get("USE_CELERY_TASKS", "true").lower() in ("1", "true", "yes")
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_HEADERS = ["*"]
@@ -199,14 +254,18 @@ DEFAULT_FROM_EMAIL = os.environ.get("MAIL_FROM", "noreply@tikitaka.local")
 # OAuth providers
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI = os.environ.get(
-    "GOOGLE_REDIRECT_URI", "http://localhost/api/v1/auth/oauth/google/callback"
+GOOGLE_REDIRECT_URI = _origin_url(
+    "GOOGLE_REDIRECT_URI",
+    "/api/v1/auth/oauth/google/callback",
+    "http://localhost/api/v1/auth/oauth/google/callback",
 )
 
 RIOT_CLIENT_ID = os.environ.get("RIOT_CLIENT_ID", "")
 RIOT_CLIENT_SECRET = os.environ.get("RIOT_CLIENT_SECRET", "")
-RIOT_REDIRECT_URI = os.environ.get(
-    "RIOT_REDIRECT_URI", "http://localhost/api/v1/auth/oauth/riot/callback"
+RIOT_REDIRECT_URI = _origin_url(
+    "RIOT_REDIRECT_URI",
+    "/api/v1/auth/oauth/riot/callback",
+    "http://localhost/api/v1/auth/oauth/riot/callback",
 )
 RIOT_DEFAULT_REGION = os.environ.get("RIOT_DEFAULT_REGION", "americas")
 VALORANT_SHARD = os.environ.get("VALORANT_SHARD", "")
@@ -220,21 +279,27 @@ RIOT_API_KEY = _load_riot_api_key()
 
 FACEIT_CLIENT_ID = os.environ.get("FACEIT_CLIENT_ID", "")
 FACEIT_CLIENT_SECRET = os.environ.get("FACEIT_CLIENT_SECRET", "")
-FACEIT_REDIRECT_URI = os.environ.get(
-    "FACEIT_REDIRECT_URI", "http://localhost/api/v1/auth/oauth/faceit/callback"
+FACEIT_REDIRECT_URI = _origin_url(
+    "FACEIT_REDIRECT_URI",
+    "/api/v1/auth/oauth/faceit/callback",
+    "http://localhost/api/v1/auth/oauth/faceit/callback",
 )
 FACEIT_API_KEY = os.environ.get("FACEIT_API_KEY", "")
 
 STEAM_API_KEY = os.environ.get("STEAM_API_KEY", "")
-STEAM_REALM = os.environ.get("STEAM_REALM", "http://localhost")
-STEAM_REDIRECT_URI = os.environ.get(
-    "STEAM_REDIRECT_URI", "http://localhost/api/v1/auth/oauth/steam/callback"
+STEAM_REALM = _origin_url("STEAM_REALM", "", "http://localhost")
+STEAM_REDIRECT_URI = _origin_url(
+    "STEAM_REDIRECT_URI",
+    "/api/v1/auth/oauth/steam/callback",
+    "http://localhost/api/v1/auth/oauth/steam/callback",
 )
 
 EPIC_CLIENT_ID = os.environ.get("EPIC_CLIENT_ID", "")
 EPIC_CLIENT_SECRET = os.environ.get("EPIC_CLIENT_SECRET", "")
-EPIC_REDIRECT_URI = os.environ.get(
-    "EPIC_REDIRECT_URI", "http://localhost/api/v1/auth/oauth/epic/callback"
+EPIC_REDIRECT_URI = _origin_url(
+    "EPIC_REDIRECT_URI",
+    "/api/v1/auth/oauth/epic/callback",
+    "http://localhost/api/v1/auth/oauth/epic/callback",
 )
 EPIC_DEPLOYMENT_ID = os.environ.get("EPIC_DEPLOYMENT_ID", "")
 
@@ -257,11 +322,8 @@ REST_FRAMEWORK = {
 }
 
 # Celery
-CELERY_BROKER_URL = (
-    f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:"
-    f"{os.environ.get('REDIS_PORT', '6379')}/1"
-)
-CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL") or _redis_connection_url(1)
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND") or CELERY_BROKER_URL
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"

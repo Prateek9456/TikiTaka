@@ -19,4 +19,5 @@ if [ "${RUN_CELERY:-false}" = "true" ]; then
   celery -A tikitaka beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler &
 fi
 
-exec gunicorn tikitaka.wsgi:application --bind 0.0.0.0:${PORT:-8080} --workers 4 --timeout 120
+WORKERS="${GUNICORN_WORKERS:-4}"
+exec gunicorn tikitaka.wsgi:application --bind 0.0.0.0:${PORT:-8080} --workers "${WORKERS}" --timeout 120

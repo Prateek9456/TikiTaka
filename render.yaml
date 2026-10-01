@@ -1,0 +1,122 @@
+# Render Blueprint — restricted TikiTaka (no Kafka / no Celery in API).
+# Requires external MySQL + Upstash Redis (see deploy/render/env.example).
+# Dashboard: New > Blueprint > Connect repo with this file.
+
+envVarGroups:
+  - name: tikitaka-data
+    envVars:
+      - key: MYSQL_HOST
+        sync: false
+      - key: MYSQL_PORT
+        value: "3306"
+      - key: MYSQL_DATABASE
+        value: tikitaka
+      - key: MYSQL_USER
+        sync: false
+      - key: MYSQL_PASSWORD
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CELERY_BROKER_URL
+        sync: false
+
+services:
+  - type: web
+    name: tikitaka-ml
+    runtime: docker
+    plan: free
+    rootDir: ml-service
+    healthCheckPath: /health
+
+  - type: web
+    name: tikitaka-api
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: Dockerfile.cloudrun
+    healthCheckPath: /actuator/health
+    envVars:
+      - fromGroup: tikitaka-data
+      - key: KAFKA_ENABLED
+        value: "false"
+      - key: RUN_KAFKA_CONSUMERS
+        value: "false"
+      - key: RUN_CELERY
+        value: "false"
+      - key: USE_CELERY_TASKS
+        value: "false"
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: GUNICORN_WORKERS
+        value: "1"
+      - key: ML_SERVICE_URL
+        fromService:
+          name: tikitaka-ml
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: PUBLIC_APP_URL
+        fromService:
+          name: tikitaka-web
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: WEB_HOSTNAME
+        fromService:
+          name: tikitaka-web
+          type: web
+          property: host
+      - key: JWT_SECRET
+        sync: false
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: OAUTH_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: RIOT_API_KEY
+        sync: false
+      - key: RIOT_CLIENT_ID
+        sync: false
+      - key: RIOT_CLIENT_SECRET
+        sync: false
+      - key: FACEIT_API_KEY
+        sync: false
+      - key: FACEIT_CLIENT_ID
+        sync: false
+      - key: FACEIT_CLIENT_SECRET
+        sync: false
+      - key: STEAM_API_KEY
+        sync: false
+      - key: EPIC_CLIENT_ID
+        sync: false
+      - key: EPIC_CLIENT_SECRET
+        sync: false
+
+  - type: web
+    name: tikitaka-web
+    runtime: docker
+    plan: free
+    rootDir: frontend
+    dockerfilePath: Dockerfile.cloudrun
+    healthCheckPath: /
+    envVars:
+      - key: BACKEND_HOST
+        fromService:
+          name: tikitaka-api
+          type: web
+          property: host
+
+  - type: cron
+    name: tikitaka-ingestion
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: Dockerfile.job
+    schedule: "0 */2 * * *"
+    envVars:
+      - fromGroup: tikitaka-data
+      - key: INGESTION_JOB
+        value: scheduled
+      - key: KAFKA_ENABLED
+        value: "false"

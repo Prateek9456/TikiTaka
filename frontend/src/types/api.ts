@@ -100,6 +100,20 @@ export interface UserGameAccountSummary {
   externalPlayerId: string;
 }
 
+export interface MatchSyncError {
+  message: string;
+  code?: string;
+}
+
+export interface MatchSyncResult {
+  matchesIngested: number;
+  accountsSynced: number;
+  games: Array<{ gameId: number; matchesIngested: number; externalMatchIds: string[] }>;
+  errors?: Array<{ gameId: number; error: string }>;
+  syncedAt: string;
+  message: string;
+}
+
 export interface MeResponse {
   id: number;
   email: string;
@@ -112,6 +126,8 @@ export interface MeResponse {
   role: UserRole;
   linkedAccounts: LinkedAccountSummary[];
   gameAccounts: UserGameAccountSummary[];
+  matchSync?: MatchSyncResult;
+  matchSyncError?: MatchSyncError;
 }
 
 export type GameSessionSource = 'INFERRED';

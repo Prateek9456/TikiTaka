@@ -256,6 +256,7 @@ def handle_riot_callback(code, state, request):
         link_account(user, OAuthProvider.RIOT, sub, email, sub, None,
                      token_data.get("access_token"), token_data.get("refresh_token"), expires_at)
         _link_riot_game_accounts(user, sub)
+        _queue_initial_match_sync(user.id)
         return _complete_link_redirect("riot")
 
     user = _find_or_create_oauth_user(
@@ -263,6 +264,7 @@ def handle_riot_callback(code, state, request):
         token_data.get("access_token"), token_data.get("refresh_token"), expires_at,
     )
     _link_riot_game_accounts(user, sub)
+    _queue_initial_match_sync(user.id)
     record_login(user, OAuthProvider.RIOT, request)
     return _complete_login_redirect(user)
 
@@ -442,16 +444,32 @@ def _find_or_create_oauth_user(provider, provider_user_id, email, display_name, 
     return user
 
 
+def _queue_initial_match_sync(user_id):
+    try:
+        from apps.ingestion.tasks import sync_user_matches_task
+
+        sync_user_matches_task.delay(user_id, limit=10)
+    except Exception as exc:
+        logger.warning("Could not queue initial match sync for user %s: %s", user_id, exc)
+
+
 def _link_riot_game_accounts(user, puuid):
     from apps.accounts.models import UserGameAccount
     from apps.games.models import Game
+    from apps.ingestion.clients import resolve_valorant_shard
+
+    account_region = (settings.RIOT_DEFAULT_REGION or "americas").lower()
+    metadata = {
+        "region": account_region,
+        "valorant_shard": resolve_valorant_shard({"region": account_region}),
+    }
 
     for game_id in (3, 4):  # valorant, lol
         game = Game.objects.filter(id=game_id).first()
         if game:
             UserGameAccount.objects.update_or_create(
                 user=user, game=game,
-                defaults={"external_player_id": puuid, "metadata": {"region": settings.RIOT_DEFAULT_REGION}},
+                defaults={"external_player_id": puuid, "metadata": metadata},
             )
 
 

@@ -209,7 +209,14 @@ RIOT_REDIRECT_URI = os.environ.get(
     "RIOT_REDIRECT_URI", "http://localhost/api/v1/auth/oauth/riot/callback"
 )
 RIOT_DEFAULT_REGION = os.environ.get("RIOT_DEFAULT_REGION", "americas")
-RIOT_API_KEY = os.environ.get("RIOT_API_KEY", "")
+VALORANT_SHARD = os.environ.get("VALORANT_SHARD", "")
+def _load_riot_api_key():
+    from apps.ingestion.riot_keys import normalize_riot_api_key
+
+    return normalize_riot_api_key(os.environ.get("RIOT_API_KEY", ""))
+
+
+RIOT_API_KEY = _load_riot_api_key()
 
 FACEIT_CLIENT_ID = os.environ.get("FACEIT_CLIENT_ID", "")
 FACEIT_CLIENT_SECRET = os.environ.get("FACEIT_CLIENT_SECRET", "")
@@ -235,20 +242,6 @@ EPIC_DEPLOYMENT_ID = os.environ.get("EPIC_DEPLOYMENT_ID", "")
 KAFKA_ENABLED = os.environ.get("KAFKA_ENABLED", "true").lower() in ("1", "true", "yes")
 KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 ML_SERVICE_URL = os.environ.get("ML_SERVICE_URL", "http://localhost:8000")
-
-VALORANT_SEED_PUUID = os.environ.get("VALORANT_SEED_PUUID", "")
-LOL_SEED_PUUID = os.environ.get("LOL_SEED_PUUID", "")
-LOL_RIOT_ID = os.environ.get("LOL_RIOT_ID", "")
-LOL_RIOT_TAG = os.environ.get("LOL_RIOT_TAG", "")
-CS2_FACEIT_PLAYER_ID = os.environ.get("CS2_FACEIT_PLAYER_ID", "")
-CS2_STEAM_ID = os.environ.get("CS2_STEAM_ID", "")
-DOTA2_ACCOUNT_ID = os.environ.get("DOTA2_ACCOUNT_ID", "")
-DOTA2_STEAM_ID = os.environ.get("DOTA2_STEAM_ID", "")
-DOTA2_USE_PUBLIC_FALLBACK = os.environ.get("DOTA2_USE_PUBLIC_FALLBACK", "true").lower() in (
-    "1",
-    "true",
-    "yes",
-)
 
 INGESTION_GAME_IDS = [1, 2, 3, 4]
 INGESTION_DEFAULT_LIMIT = 20

@@ -1,14 +1,31 @@
 import logging
 from datetime import datetime, timezone
 
-from django.conf import settings
-
-from apps.ingestion.clients import FaceitClient, OpenDotaClient, RiotApiClient
+from apps.ingestion.clients import (
+    FaceitClient,
+    OpenDotaClient,
+    RiotApiClient,
+    resolve_account_routing_region,
+    resolve_valorant_shard,
+)
+from apps.ingestion.errors import IngestionError
 
 logger = logging.getLogger(__name__)
 
-STEAM_OFFSET = 76561197960265728
 
+def _require_player_context(ctx, game_label):
+    if not ctx:
+        raise IngestionError(
+            f"No linked {game_label} account. Link your profile in settings before syncing matches.",
+            "PLAYER_NOT_LINKED",
+        )
+    player_id = (ctx.get("external_player_id") or "").strip()
+    if player_id:
+        return player_id
+    raise IngestionError(
+        f"No linked {game_label} account. Link your profile in settings before syncing matches.",
+        "PLAYER_NOT_LINKED",
+    )
 
 class BaseStrategy:
     game_id = None
@@ -28,25 +45,10 @@ class Dota2Strategy(BaseStrategy):
     def __init__(self):
         self.client = OpenDotaClient()
 
-    def _resolve_account_id(self, ctx):
-        if ctx and ctx.get("external_player_id"):
-            return ctx["external_player_id"]
-        if settings.DOTA2_ACCOUNT_ID:
-            return settings.DOTA2_ACCOUNT_ID
-        if settings.DOTA2_STEAM_ID:
-            return str(int(settings.DOTA2_STEAM_ID) - STEAM_OFFSET)
-        return None
-
     def fetch_recent_matches(self, player_context=None, limit=5):
-        account_id = self._resolve_account_id(player_context)
-        if account_id:
-            match_list = self.client.get_player_matches(account_id, limit)
-            match_ids = [m["match_id"] for m in match_list]
-        elif settings.DOTA2_USE_PUBLIC_FALLBACK:
-            public = self.client.get_public_matches(limit)
-            match_ids = [m["match_id"] for m in public]
-        else:
-            return []
+        account_id = _require_player_context(player_context, "Dota 2")
+        match_list = self.client.get_player_matches(account_id, limit)
+        match_ids = [m["match_id"] for m in match_list]
 
         matches = []
         for mid in match_ids:
@@ -101,23 +103,23 @@ class Cs2Strategy(BaseStrategy):
         self.client = FaceitClient()
 
     def _resolve_player_id(self, ctx):
-        if ctx:
-            meta = ctx.get("metadata") or {}
-            if meta.get("faceit-id"):
-                return meta["faceit-id"]
-            steam = ctx.get("external_player_id") or meta.get("steam-id")
-            if steam and str(steam).startswith("7656119"):
-                return self.client.get_player_by_steam_id(steam)["player_id"]
-        if settings.CS2_FACEIT_PLAYER_ID:
-            return settings.CS2_FACEIT_PLAYER_ID
-        if settings.CS2_STEAM_ID:
-            return self.client.get_player_by_steam_id(settings.CS2_STEAM_ID)["player_id"]
-        return None
+        _require_player_context(ctx, "CS2")
+        meta = ctx.get("metadata") or {}
+        if meta.get("faceit-id"):
+            return meta["faceit-id"]
+        steam = ctx.get("external_player_id") or meta.get("steam-id")
+        if steam and str(steam).startswith("7656119"):
+            return self.client.get_player_by_steam_id(steam)["player_id"]
+        player_id = (ctx.get("external_player_id") or "").strip()
+        if player_id:
+            return player_id
+        raise IngestionError(
+            "No linked CS2 account. Link Faceit or Steam in settings before syncing matches.",
+            "PLAYER_NOT_LINKED",
+        )
 
     def fetch_recent_matches(self, player_context=None, limit=5):
         player_id = self._resolve_player_id(player_context)
-        if not player_id:
-            return []
         history = self.client.get_match_history(player_id, limit)
         matches = []
         for item in history.get("items", []):
@@ -162,18 +164,15 @@ class ValorantStrategy(BaseStrategy):
     game_id = 3
     game_slug = "valorant"
 
-    def __init__(self, region=None):
-        self.client = RiotApiClient(region)
-
-    def _resolve_puuid(self, ctx):
-        if ctx and ctx.get("external_player_id"):
-            return ctx["external_player_id"]
-        return settings.VALORANT_SEED_PUUID or None
+    def __init__(self, player_context=None):
+        metadata = (player_context or {}).get("metadata") or {}
+        self.client = RiotApiClient(
+            account_region=resolve_account_routing_region(metadata),
+            valorant_shard=resolve_valorant_shard(metadata),
+        )
 
     def fetch_recent_matches(self, player_context=None, limit=5):
-        puuid = self._resolve_puuid(player_context)
-        if not puuid:
-            return []
+        puuid = _require_player_context(player_context, "Valorant")
         matchlist = self.client.get_valorant_matchlist(puuid, limit)
         matches = []
         for entry in matchlist.get("history", []):
@@ -218,22 +217,12 @@ class LolStrategy(BaseStrategy):
     game_id = 4
     game_slug = "lol"
 
-    def __init__(self, region=None):
-        self.client = RiotApiClient(region)
-
-    def _resolve_puuid(self, ctx):
-        if ctx and ctx.get("external_player_id"):
-            return ctx["external_player_id"]
-        if settings.LOL_SEED_PUUID:
-            return settings.LOL_SEED_PUUID
-        if settings.LOL_RIOT_ID and settings.LOL_RIOT_TAG:
-            return self.client.get_lol_account_by_riot_id(settings.LOL_RIOT_ID, settings.LOL_RIOT_TAG)["puuid"]
-        return None
+    def __init__(self, player_context=None):
+        metadata = (player_context or {}).get("metadata") or {}
+        self.client = RiotApiClient(account_region=resolve_account_routing_region(metadata))
 
     def fetch_recent_matches(self, player_context=None, limit=5):
-        puuid = self._resolve_puuid(player_context)
-        if not puuid:
-            return []
+        puuid = _require_player_context(player_context, "League of Legends")
         match_ids = self.client.get_lol_match_ids(puuid, limit)
         matches = []
         for mid in match_ids:
@@ -280,8 +269,10 @@ STRATEGIES = {
 SLUG_TO_ID = {"dota2": 1, "cs2": 2, "valorant": 3, "lol": 4}
 
 
-def get_strategy(game_id):
+def get_strategy(game_id, player_context=None):
     cls = STRATEGIES.get(game_id)
     if not cls:
         raise ValueError(f"No strategy for game {game_id}")
+    if game_id in (3, 4):
+        return cls(player_context)
     return cls()

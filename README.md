@@ -54,7 +54,7 @@ Copy `.env.example` to `.env` before first run. Important groups:
 
 - **Auth**: `JWT_SECRET` (base64, ≥256 bits), `OAUTH_TOKEN_ENCRYPTION_KEY` (base64 AES-256 for stored provider tokens)
 - **OAuth**: Google, Riot, Steam, Faceit, Epic — each needs client credentials and redirect URIs registered with the provider (defaults assume `http://localhost` through Nginx)
-- **Ingestion**: `RIOT_API_KEY`, `FACEIT_API_KEY`, optional seed IDs for demo/batch pulls; cron via `TIKITAKA_INGESTION_CRON` and `TIKITAKA_USER_POLLER_CRON`
+- **Ingestion**: `RIOT_API_KEY`, `FACEIT_API_KEY` (server-side only); match pulls use each user's linked accounts—cron via `TIKITAKA_INGESTION_CRON` and `TIKITAKA_USER_POLLER_CRON`
 - **Production**: set `PUBLIC_APP_URL` to your public origin, `COOKIE_SECURE=true`, and align `CORS_ALLOWED_ORIGINS` and OAuth redirect URLs with that host
 - **Email**: SMTP vars for password-reset OTPs; without SMTP, OTPs may be logged in dev
 

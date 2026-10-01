@@ -192,6 +192,9 @@ export async function getOAuthProviders(): Promise<import('../types/api').OAuthP
 
 export type OAuthProviderStatus = Record<import('../types/api').OAuthProvider, boolean> & {
   riotIdLink?: boolean;
+  riotApiConfigured?: boolean;
+  riotApiHealthy?: boolean;
+  riotApiStatusMessage?: string;
   faceitNicknameLink?: boolean;
 };
 
@@ -238,6 +241,14 @@ export async function linkFaceitByNickname(nickname: string): Promise<import('..
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ nickname }),
+  });
+}
+
+export async function syncMyMatches(gameId?: number, limit = 10): Promise<import('../types/api').MatchSyncResult> {
+  return fetchApi<import('../types/api').MatchSyncResult>('/ingest/me/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gameId, limit }),
   });
 }
 

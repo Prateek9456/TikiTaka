@@ -31,11 +31,32 @@ export function GameOnboardingBanner({
   const [riotId, setRiotId] = useState('');
   const [riotTag, setRiotTag] = useState('');
   const [faceitNickname, setFaceitNickname] = useState('');
-  const { providers: configuredProviders, riotIdLink, faceitNicknameLink } = useOAuthProviders();
+  const {
+    providers: configuredProviders,
+    riotIdLink,
+    riotApiHealthy,
+    riotApiStatusMessage,
+    faceitNicknameLink,
+  } = useOAuthProviders();
   const configuredProviderSet = new Set(configuredProviders);
   const requirements = GAME_LINK_REQUIREMENTS[game.slug];
 
   if (!requirements || hasGameAccount) {
+    if (
+      hasGameAccount &&
+      requirements &&
+      (game.slug === 'valorant' || game.slug === 'lol') &&
+      riotIdLink &&
+      !riotApiHealthy &&
+      riotApiStatusMessage
+    ) {
+      return (
+        <EsportsCard className="border-red-500/40 p-5">
+          <p className="text-sm font-semibold text-red-200">Riot API is not working</p>
+          <p className="mt-2 text-sm text-red-200/90">{riotApiStatusMessage}</p>
+        </EsportsCard>
+      );
+    }
     return null;
   }
 
@@ -70,8 +91,16 @@ export function GameOnboardingBanner({
     setLinkError(null);
     setLinking('riot-id');
     try {
-      await linkRiotById(riotId.trim(), riotTag.trim());
+      const tag = riotTag.trim().replace(/^#+/, '');
+      const result = await linkRiotById(riotId.trim(), tag);
       await refreshUser();
+      if (result.matchSyncError) {
+        setLinkError(result.matchSyncError.message);
+      } else if (result.matchSync && result.matchSync.matchesIngested === 0) {
+        setLinkError(
+          'Riot ID linked. No recent matches were returned—play a game or check RIOT_API_KEY and RIOT_DEFAULT_REGION in .env.',
+        );
+      }
     } catch (err) {
       setLinkError(err instanceof ApiError ? err.message : 'Failed to link Riot ID');
     } finally {
@@ -117,6 +146,11 @@ export function GameOnboardingBanner({
         <div className="flex-1">
           <p className="font-display text-sm font-bold uppercase tracking-wider text-white">{requirements.title}</p>
           <p className="mt-1 text-sm text-ink-muted">{requirements.description}</p>
+          {riotIdLink && !riotApiHealthy && riotApiStatusMessage ? (
+            <p className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+              {riotApiStatusMessage}
+            </p>
+          ) : null}
           {linkError ? <p className="mt-2 text-sm text-red-300">{linkError}</p> : null}
           <div className="mt-4 flex flex-col gap-4">
             {missingProviders.map((provider) => {
@@ -137,7 +171,7 @@ export function GameOnboardingBanner({
                       <input
                         value={riotTag}
                         onChange={(e) => setRiotTag(e.target.value)}
-                        placeholder="TAG"
+                        placeholder="3610"
                         className="w-24 rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-white"
                       />
                     </label>

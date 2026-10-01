@@ -7,6 +7,7 @@ while ! python -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(
 done
 
 python manage.py migrate --noinput
+python manage.py setup_ingestion_schedule 2>/dev/null || true
 python manage.py collectstatic --noinput 2>/dev/null || true
 
 if [ "${RUN_KAFKA_CONSUMERS:-false}" = "true" ]; then

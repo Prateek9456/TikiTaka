@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ApiError, unlinkProvider } from '../api/client';
+import { ApiError, syncMyMatches, unlinkProvider } from '../api/client';
 import { GameLogo } from '../components/brand/GameLogo';
 import { OAuthProviderIcon } from '../components/auth/OAuthProviderIcon';
 import { Toast } from '../components/ui/Toast';
@@ -311,10 +311,24 @@ export function AccountSettings() {
     const providerKey = linked.toUpperCase() as OAuthProvider;
     const label = PROVIDER_LABELS[providerKey] ?? linked;
 
-    void refreshUser().then(() => {
-      setLinkedToast(`${label} linked successfully`);
-      setSearchParams({}, { replace: true });
-    });
+    void refreshUser()
+      .then(() => syncMyMatches(undefined, 10))
+      .then((result) => {
+        if (result.errors?.length) {
+          setActionError(result.errors.map((e) => e.error).join(' '));
+        }
+        const count = result.matchesIngested;
+        setLinkedToast(
+          count > 0
+            ? `${label} linked — pulled ${count} match${count === 1 ? '' : 'es'}`
+            : `${label} linked — match sync started (play a game if nothing appears yet)`,
+        );
+        setSearchParams({}, { replace: true });
+      })
+      .catch(() => {
+        setLinkedToast(`${label} linked successfully`);
+        setSearchParams({}, { replace: true });
+      });
   }, [searchParams, setSearchParams, refreshUser]);
 
   async function handleLink(provider: OAuthProvider) {

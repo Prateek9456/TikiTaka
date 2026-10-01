@@ -139,6 +139,11 @@ def sync_user_matches(user_id, game_id=None, limit=5):
             "PLAYER_NOT_LINKED",
         )
 
+    from apps.ingestion.prototype_seed import is_prototype_account, prototype_demo_enabled, prototype_sync_result
+
+    if prototype_demo_enabled() and all(is_prototype_account(account) for account in account_list):
+        return prototype_sync_result(user_id, game_id)
+
     for account in account_list:
         ctx = {
             "external_player_id": account.external_player_id,

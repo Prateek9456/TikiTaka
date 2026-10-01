@@ -277,6 +277,9 @@ def _load_riot_api_key():
 
 RIOT_API_KEY = _load_riot_api_key()
 
+# When true, Riot ID linking seeds realistic Valorant/LoL demo data (no Riot API calls).
+PROTOTYPE_DEMO = os.environ.get("PROTOTYPE_DEMO", "false").lower() in ("1", "true", "yes")
+
 FACEIT_CLIENT_ID = os.environ.get("FACEIT_CLIENT_ID", "")
 FACEIT_CLIENT_SECRET = os.environ.get("FACEIT_CLIENT_SECRET", "")
 FACEIT_REDIRECT_URI = _origin_url(

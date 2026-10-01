@@ -201,7 +201,7 @@ function GameAccountCard({
 }: {
   game: Game;
   status: GameAccountStatus;
-  gameAccount: { externalPlayerId: string } | undefined;
+  gameAccount: { externalPlayerId: string; riotId?: string } | undefined;
   missingProviders: OAuthProvider[];
   onLinkProvider: (provider: OAuthProvider) => void;
   linking: OAuthProvider | null;
@@ -225,7 +225,9 @@ function GameAccountCard({
 
           {gameAccount ? (
             <p className="mt-2 font-mono text-xs text-slate-500">
-              Player ID: {truncateId(gameAccount.externalPlayerId)}
+              {gameAccount.riotId
+                ? `Riot ID: ${gameAccount.riotId}`
+                : `Player ID: ${truncateId(gameAccount.externalPlayerId)}`}
             </p>
           ) : null}
 

@@ -214,7 +214,10 @@ def patterns_list(request):
     sort_by = request.GET.get("sortBy", "winRate")
     page = int(request.GET.get("page", 0))
     size = int(request.GET.get("size", 20))
-    return api_success(list_patterns(int(game_id), sort_by, page, size))
+    user = getattr(request, "tikitaka_user", None)
+    return api_success(
+        list_patterns(int(game_id), sort_by, page, size, user_id=user.id if user else None),
+    )
 
 
 @api_view(["GET"])

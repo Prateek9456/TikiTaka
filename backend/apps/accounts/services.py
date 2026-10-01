@@ -183,6 +183,11 @@ def get_current_user(email):
                 "gameId": ga.game_id,
                 "gameName": ga.game.name,
                 "externalPlayerId": ga.external_player_id,
+                **(
+                    {"riotId": ga.metadata["riot-id"]}
+                    if isinstance(ga.metadata, dict) and ga.metadata.get("riot-id")
+                    else {}
+                ),
             }
             for ga in user.game_accounts.select_related("game").all()
         ],
@@ -291,11 +296,17 @@ def get_oauth_provider_status():
     from apps.ingestion.riot_api import cached_riot_api_probe
 
     status = {p.value: is_provider_configured(p) for p in OAuthProvider}
-    riot_probe = cached_riot_api_probe()
-    status["riotIdLink"] = bool(settings.RIOT_API_KEY)
-    status["riotApiConfigured"] = bool(settings.RIOT_API_KEY)
-    status["riotApiHealthy"] = riot_probe.get("healthy", False)
-    status["riotApiStatusMessage"] = riot_probe.get("message", "")
+    if getattr(settings, "PROTOTYPE_DEMO", False):
+        status["riotIdLink"] = True
+        status["riotApiConfigured"] = True
+        status["riotApiHealthy"] = True
+        status["riotApiStatusMessage"] = ""
+    else:
+        riot_probe = cached_riot_api_probe()
+        status["riotIdLink"] = bool(settings.RIOT_API_KEY)
+        status["riotApiConfigured"] = bool(settings.RIOT_API_KEY)
+        status["riotApiHealthy"] = riot_probe.get("healthy", False)
+        status["riotApiStatusMessage"] = riot_probe.get("message", "")
     status["faceitNicknameLink"] = bool(settings.FACEIT_API_KEY)
     return status
 
@@ -307,6 +318,11 @@ def link_riot_games_by_riot_id(user_id, game_name, tag_line):
     from apps.ingestion.clients import normalize_riot_id_parts
     from apps.ingestion.errors import IngestionError
     from apps.ingestion.riot_api import build_riot_link_metadata, fetch_account_by_riot_id, probe_valorant_match_access
+
+    if getattr(settings, "PROTOTYPE_DEMO", False):
+        from apps.ingestion.prototype_seed import link_riot_prototype_demo
+
+        return link_riot_prototype_demo(user_id, game_name, tag_line)
 
     if not settings.RIOT_API_KEY:
         raise TikitakaException("Riot API key is not configured", 503, "RIOT_API_NOT_CONFIGURED")

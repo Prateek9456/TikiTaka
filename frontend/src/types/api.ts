@@ -98,6 +98,7 @@ export interface UserGameAccountSummary {
   gameId: number;
   gameName: string;
   externalPlayerId: string;
+  riotId?: string;
 }
 
 export interface MatchSyncError {

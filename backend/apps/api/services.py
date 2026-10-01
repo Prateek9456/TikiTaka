@@ -23,7 +23,12 @@ def list_games():
     ]
 
 
-def list_patterns(game_id, sort_by="winRate", page=0, size=20):
+def list_patterns(game_id, sort_by="winRate", page=0, size=20, user_id=None):
+    if user_id is not None:
+        from apps.ingestion.prototype_seed import ensure_prototype_dashboard_data
+
+        ensure_prototype_dashboard_data(user_id, game_id)
+
     qs = TacticalPattern.objects.filter(game_id=game_id)
     if sort_by == "winRate":
         qs = qs.order_by("-win_rate")
@@ -61,6 +66,10 @@ def list_patterns(game_id, sort_by="winRate", page=0, size=20):
 
 
 def get_leaderboard(user_id, game_id, metric="tikitaka_score"):
+    from apps.ingestion.prototype_seed import ensure_prototype_dashboard_data
+
+    ensure_prototype_dashboard_data(user_id, game_id)
+
     current_player_id = None
     account = UserGameAccount.objects.filter(user_id=user_id, game_id=game_id).first()
     if account:
@@ -120,6 +129,10 @@ def _build_match_analysis(match):
 
 
 def get_latest_match(user_id, game_id):
+    from apps.ingestion.prototype_seed import ensure_prototype_dashboard_data
+
+    ensure_prototype_dashboard_data(user_id, game_id)
+
     account = UserGameAccount.objects.filter(user_id=user_id, game_id=game_id).first()
     if not account:
         raise TikitakaException(

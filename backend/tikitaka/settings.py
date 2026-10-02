@@ -93,6 +93,32 @@ if _use_tidb:
     import pymysql
     pymysql.install_as_MySQLdb()
 
+    # TiDB compatibility patches:
+    # 1. TiDB does not support ADD COLUMN and ADD CONSTRAINT FOREIGN KEY in a single statement
+    #    (e.g. django-celery-beat's solar_id). Setting sql_create_column_inline_fk = None causes
+    #    Django to run them as separate statements (ALTER TABLE ADD COLUMN ... then ADD CONSTRAINT ...).
+    #    See https://github.com/pingcap/tidb/issues/45474
+    # 2. TiDB does not support ADD COLUMN ... UNIQUE in a single ALTER TABLE statement.
+    from django.db.backends.mysql.schema import DatabaseSchemaEditor
+    DatabaseSchemaEditor.sql_create_column_inline_fk = None
+
+    _orig_add_field = DatabaseSchemaEditor.add_field
+
+    def _tidb_add_field(self, model, field):
+        if getattr(field, "_unique", False):
+            field._unique = False
+            if "unique" in field.__dict__:
+                del field.unique
+            _orig_add_field(self, model, field)
+            field._unique = True
+            if "unique" in field.__dict__:
+                del field.unique
+            self.execute(self._create_unique_sql(model, [field]))
+        else:
+            _orig_add_field(self, model, field)
+
+    DatabaseSchemaEditor.add_field = _tidb_add_field
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",

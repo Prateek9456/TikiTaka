@@ -95,6 +95,9 @@ DATABASES = {
     }
 }
 
+if os.environ.get("MYSQL_USE_SSL", "false").lower() == "true":
+    DATABASES["default"]["OPTIONS"]["ssl"] = {"ca": "/etc/ssl/certs/ca-certificates.crt"}
+
 _cloud_sql = os.environ.get("CLOUD_SQL_CONNECTION_NAME", "").strip()
 if _cloud_sql:
     DATABASES["default"]["HOST"] = f"/cloudsql/{_cloud_sql}"

@@ -41,17 +41,40 @@ ssl_kwargs = {}
 if 'tidbcloud.com' in host:
     ssl_kwargs = {'ssl_verify_cert': True, 'ssl_verify_identity': True}
 
+# Ensure target database exists
+try:
+    init_conn = pymysql.connect(host=host, port=port, user=user, password=pw, **ssl_kwargs)
+    with init_conn.cursor() as cur:
+        cur.execute(f"CREATE DATABASE IF NOT EXISTS `{db}`")
+    init_conn.commit()
+    init_conn.close()
+except Exception as e:
+    print(f"Note: Could not run CREATE DATABASE (may already exist or lack permission): {e}")
+
 print(f"Connecting to {host}:{port} db={db} user={user}")
 conn = pymysql.connect(host=host, port=port, user=user, password=pw,
                        database=db, **ssl_kwargs)
 
 with conn.cursor() as cur:
-    # Check if any Django-managed tables already exist
     cur.execute("SHOW TABLES")
     tables = [row[0] for row in cur.fetchall()]
 
-if tables:
-    print(f"Found {len(tables)} existing tables — dropping all to ensure clean migration...")
+force_reset = os.environ.get("RESET_DB", "false").lower() in ("1", "true", "yes")
+should_clean = force_reset
+
+if tables and not force_reset:
+    if "django_migrations" not in tables:
+        should_clean = True
+    else:
+        # Check if migrations completed successfully previously (django_celery_beat & matches)
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM django_migrations WHERE app IN ('django_celery_beat', 'matches')")
+            if cur.fetchone()[0] == 0:
+                # Tables exist but failed mid-way previously
+                should_clean = True
+
+if should_clean:
+    print(f"Found orphaned/incomplete tables ({len(tables)}) — cleaning up for fresh migration...")
     with conn.cursor() as cur:
         cur.execute("SET FOREIGN_KEY_CHECKS = 0")
         for t in tables:
@@ -59,9 +82,9 @@ if tables:
             print(f"  Dropped: {t}")
         cur.execute("SET FOREIGN_KEY_CHECKS = 1")
     conn.commit()
-    print("All tables dropped. Running migrations on clean database...")
+    print("Orphaned tables dropped. Running migrations on clean database...")
 else:
-    print("Clean database — running migrations...")
+    print(f"Database ready ({len(tables)} tables) — running migrations...")
 
 conn.close()
 

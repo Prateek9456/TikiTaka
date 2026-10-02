@@ -72,7 +72,7 @@ PYEOF
 python /tmp/dbcheck.py
 
 echo "Running migrations..."
-python manage.py migrate --noinput
+python manage.py migrate --noinput --fake-initial
 python manage.py collectstatic --noinput 2>/dev/null || true
 
 WORKERS="${GUNICORN_WORKERS:-1}"

@@ -80,13 +80,26 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "tikitaka.wsgi.application"
 
+_db_host = os.environ.get("MYSQL_HOST", "localhost")
+_use_tidb = "tidbcloud.com" in _db_host
+_use_ssl = (
+    os.environ.get("MYSQL_USE_SSL", "false").lower() == "true"
+    or _use_tidb
+)
+
+# Use PyMySQL for TiDB Cloud — mysqlclient's SSL negotiation fails silently
+# in some container environments, causing TiDB to reject with "Access denied".
+if _use_tidb:
+    import pymysql
+    pymysql.install_as_MySQLdb()
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
         "NAME": os.environ.get("MYSQL_DATABASE", "tikitaka"),
         "USER": os.environ.get("MYSQL_USER", "tikitaka"),
         "PASSWORD": os.environ.get("MYSQL_PASSWORD", "tikitaka_secret"),
-        "HOST": os.environ.get("MYSQL_HOST", "localhost"),
+        "HOST": _db_host,
         "PORT": os.environ.get("MYSQL_PORT", "3306"),
         "OPTIONS": {
             "charset": "utf8mb4",
@@ -95,14 +108,7 @@ DATABASES = {
     }
 }
 
-# Auto-enable TLS for TiDB Cloud (rejects non-TLS with misleading "access denied")
-_db_host = DATABASES["default"]["HOST"]
-_use_ssl = (
-    os.environ.get("MYSQL_USE_SSL", "false").lower() == "true"
-    or "tidbcloud.com" in _db_host
-)
 if _use_ssl:
-    DATABASES["default"]["OPTIONS"]["ssl_mode"] = "VERIFY_IDENTITY"
     DATABASES["default"]["OPTIONS"]["ssl"] = {
         "ca": "/etc/ssl/certs/ca-certificates.crt",
     }

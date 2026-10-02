@@ -95,8 +95,17 @@ DATABASES = {
     }
 }
 
-if os.environ.get("MYSQL_USE_SSL", "false").lower() == "true":
-    DATABASES["default"]["OPTIONS"]["ssl"] = {"ca": "/etc/ssl/certs/ca-certificates.crt"}
+# Auto-enable TLS for TiDB Cloud (rejects non-TLS with misleading "access denied")
+_db_host = DATABASES["default"]["HOST"]
+_use_ssl = (
+    os.environ.get("MYSQL_USE_SSL", "false").lower() == "true"
+    or "tidbcloud.com" in _db_host
+)
+if _use_ssl:
+    DATABASES["default"]["OPTIONS"]["ssl_mode"] = "VERIFY_IDENTITY"
+    DATABASES["default"]["OPTIONS"]["ssl"] = {
+        "ca": "/etc/ssl/certs/ca-certificates.crt",
+    }
 
 _cloud_sql = os.environ.get("CLOUD_SQL_CONNECTION_NAME", "").strip()
 if _cloud_sql:

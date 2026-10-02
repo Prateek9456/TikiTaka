@@ -44,7 +44,8 @@ db   = os.environ.get('MYSQL_DATABASE','test')
 print(f'  HOST={host}')
 print(f'  PORT={port}')
 print(f'  USER={user}')
-print(f'  PASS={"*" * len(pw)} (len={len(pw)})')
+masked = "*" * len(pw)
+print(f'  PASS={masked} (len={len(pw)})')
 print(f'  DB={db}')
 
 import pymysql

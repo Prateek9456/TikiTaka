@@ -158,10 +158,16 @@ def _redis_connection_url(db_index: int) -> str:
     base = os.environ.get("REDIS_URL", "").strip()
     if base:
         trimmed = base.rstrip("/")
+        # Upstash Redis Free tier does not support SELECT / multi-database indexing
+        if "upstash.io" in trimmed:
+            return trimmed
         tail = trimmed.rsplit("/", 1)[-1]
         if tail.isdigit():
             return f"{trimmed.rsplit('/', 1)[0]}/{db_index}"
         return f"{trimmed}/{db_index}"
+    # On Render, if no REDIS_URL is provided, do not point to non-existent localhost
+    if os.environ.get("RENDER") or os.environ.get("RENDER_EXTERNAL_HOSTNAME"):
+        return ""
     password = os.environ.get("REDIS_PASSWORD", "")
     auth = f":{password}@" if password else ""
     host = os.environ.get("REDIS_HOST", "localhost")
@@ -172,7 +178,10 @@ def _redis_connection_url(db_index: int) -> str:
 
 
 def _redis_client_options() -> dict:
-    options: dict = {"CLIENT_CLASS": "django_redis.client.DefaultClient"}
+    options: dict = {
+        "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        "IGNORE_EXCEPTIONS": True,
+    }
     redis_url = os.environ.get("REDIS_URL", "")
     use_tls = os.environ.get("REDIS_SSL", "").lower() in ("1", "true", "yes")
     if redis_url.startswith("rediss://") or use_tls:
@@ -188,6 +197,12 @@ _REDIS_OPTIONS = _redis_client_options()
 
 
 def _redis_cache(key_prefix: str, timeout: int) -> dict:
+    if not _REDIS_LOCATION:
+        return {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": f"locmem-{key_prefix}",
+            "TIMEOUT": timeout,
+        }
     return {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": _REDIS_LOCATION,
@@ -285,7 +300,7 @@ CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = COOKIE_SAMESITE
 CSRF_COOKIE_SECURE = COOKIE_SECURE
 CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
-if os.environ.get("RENDER"):
+if os.environ.get("RENDER") or os.environ.get("RENDER_EXTERNAL_HOSTNAME"):
     if "https://*.onrender.com" not in CSRF_TRUSTED_ORIGINS:
         CSRF_TRUSTED_ORIGINS.append("https://*.onrender.com")
 

@@ -41,9 +41,7 @@ export const PROVIDER_DESCRIPTIONS: Record<OAuthProvider, string> = {
 
 export const ALL_OAUTH_PROVIDERS: OAuthProvider[] = [
   'GOOGLE',
-  'RIOT',
   'STEAM',
-  'FACEIT',
   'EPIC',
 ];
 

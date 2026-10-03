@@ -131,6 +131,7 @@ export function usePersonalLatestMatch(
     const startedAt = Date.now();
     previousMatchIdRef.current = null;
     syncAttemptedRef.current = false;
+    setError(null);
 
     function stopPolling() {
       if (intervalId !== undefined) {
@@ -161,11 +162,20 @@ export function usePersonalLatestMatch(
       }
       syncAttemptedRef.current = true;
       try {
-        await syncMyMatches(gameId, 10);
+        const result = await syncMyMatches(gameId, 10);
+        if (result.errors && result.errors.length > 0) {
+          if (!cancelled) {
+            setError(result.errors[0].error);
+          }
+          return false;
+        }
+        if (!cancelled) {
+          setError(null);
+        }
         return true;
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof ApiError ? err.message : 'Failed to sync matches from Riot');
+          setError(err instanceof ApiError ? err.message : 'Failed to sync matches from provider');
         }
         return false;
       }

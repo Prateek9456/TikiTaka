@@ -89,6 +89,7 @@ export interface AuthResponse {
 
 export interface LinkedAccountSummary {
   provider: OAuthProvider;
+  providerUserId?: string;
   displayName: string | null;
   avatarUrl: string | null;
   linkedAt: string;
@@ -96,8 +97,10 @@ export interface LinkedAccountSummary {
 
 export interface UserGameAccountSummary {
   gameId: number;
+  gameSlug?: string;
   gameName: string;
   externalPlayerId: string;
+  metadata?: Record<string, any>;
 }
 
 export interface MatchSyncError {

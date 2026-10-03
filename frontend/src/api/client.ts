@@ -133,12 +133,6 @@ async function fetchApi<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 async function readError(response: Response): Promise<{ message: string; code?: string }> {
-  if (response.status >= 500) {
-    return {
-      message: `Backend error (${response.status}). Ensure MySQL, Redis, and Kafka are running: docker compose up -d`,
-    };
-  }
-
   try {
     const json = (await response.json()) as ApiResponse<unknown> & {
       error?: { message?: string; code?: string; fieldErrors?: Record<string, string> };
@@ -147,13 +141,23 @@ async function readError(response: Response): Promise<{ message: string; code?: 
     if (fieldErrors && Object.keys(fieldErrors).length > 0) {
       return { message: Object.values(fieldErrors).join('. '), code: json.error?.code };
     }
-    return {
-      message: json.error?.message ?? json.message ?? `Request failed: ${response.status}`,
-      code: json.error?.code,
-    };
+    if (json.error?.message || json.message) {
+      return {
+        message: json.error?.message ?? json.message ?? `Request failed: ${response.status}`,
+        code: json.error?.code,
+      };
+    }
   } catch {
-    return { message: `Request failed: ${response.status} ${response.statusText}` };
+    // Response was not JSON
   }
+
+  if (response.status >= 500) {
+    return {
+      message: `Backend service error (${response.status}). Ensure the backend is reachable.`,
+    };
+  }
+
+  return { message: `Request failed: ${response.status} ${response.statusText}` };
 }
 
 export async function login(
@@ -224,6 +228,12 @@ export async function getCurrentUser(): Promise<MeResponse> {
 
 export async function unlinkProvider(provider: string): Promise<void> {
   await fetchApi<null>(`/auth/link/${provider.toLowerCase()}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function unlinkGameAccount(gameIdentifier: number | string): Promise<MeResponse> {
+  return fetchApi<MeResponse>(`/auth/games/${gameIdentifier}`, {
     method: 'DELETE',
   });
 }

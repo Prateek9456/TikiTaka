@@ -172,6 +172,7 @@ def get_current_user(email):
         "linkedAccounts": [
             {
                 "provider": la.provider,
+                "providerUserId": la.provider_user_id,
                 "displayName": la.display_name,
                 "avatarUrl": la.avatar_url,
                 "linkedAt": la.created_at.isoformat().replace("+00:00", "Z"),
@@ -181,8 +182,10 @@ def get_current_user(email):
         "gameAccounts": [
             {
                 "gameId": ga.game_id,
+                "gameSlug": ga.game.slug,
                 "gameName": ga.game.name,
                 "externalPlayerId": ga.external_player_id,
+                "metadata": ga.metadata or {},
             }
             for ga in user.game_accounts.select_related("game").all()
         ],
@@ -278,9 +281,37 @@ def link_account(user, provider, provider_user_id, email=None, display_name=None
 
 
 def unlink_account(user_id, provider):
-    deleted, _ = LinkedAccount.objects.filter(user_id=user_id, provider=provider).delete()
+    prov_val = provider.value if hasattr(provider, "value") else str(provider)
+    deleted, _ = LinkedAccount.objects.filter(user_id=user_id, provider=prov_val).delete()
     if not deleted:
-        raise TikitakaException(f"No linked {provider} account found", 404, "LINK_NOT_FOUND")
+        raise TikitakaException(f"No linked {prov_val} account found", 404, "LINK_NOT_FOUND")
+    if prov_val == "STEAM":
+        from apps.accounts.models import UserGameAccount
+        UserGameAccount.objects.filter(user_id=user_id, game_id__in=[1, 2]).delete()
+
+
+def unlink_game_account(user_id, game_identifier):
+    from apps.accounts.models import UserGameAccount
+    from apps.games.models import Game
+
+    if str(game_identifier).isdigit():
+        game = Game.objects.filter(id=int(game_identifier)).first()
+    else:
+        game = Game.objects.filter(slug=str(game_identifier).lower()).first()
+
+    if not game:
+        raise TikitakaException("Game not found", 404, "GAME_NOT_FOUND")
+
+    if game.slug in ("valorant", "lol"):
+        deleted_count, _ = UserGameAccount.objects.filter(user_id=user_id, game_id__in=[3, 4]).delete()
+        if not deleted_count:
+            raise TikitakaException(f"No linked Riot account found for {game.name}", 404, "ACCOUNT_NOT_LINKED")
+        return f"Riot ID disconnected from {game.name} and related games"
+
+    deleted_count, _ = UserGameAccount.objects.filter(user_id=user_id, game=game).delete()
+    if not deleted_count:
+        raise TikitakaException(f"No connected account found for {game.name}", 404, "ACCOUNT_NOT_LINKED")
+    return f"{game.name} account disconnected"
 
 
 def get_oauth_providers():

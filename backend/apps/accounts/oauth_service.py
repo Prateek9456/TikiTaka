@@ -127,11 +127,14 @@ def _oauth_authorize_url(provider, response, link_user_id=None):
         return f"{EPIC_AUTH_URL}?{urlencode(params)}"
 
     if provider == OAuthProvider.STEAM:
-        create_state(response, link_user_id)
+        state = create_state(response, link_user_id)
+        return_to = settings.STEAM_REDIRECT_URI
+        delim = "&" if "?" in return_to else "?"
+        return_to_with_state = f"{return_to}{delim}state={state}"
         params = {
             "openid.ns": "http://specs.openid.net/auth/2.0",
             "openid.mode": "checkid_setup",
-            "openid.return_to": settings.STEAM_REDIRECT_URI,
+            "openid.return_to": return_to_with_state,
             "openid.realm": settings.STEAM_REALM,
             "openid.identity": "http://specs.openid.net/auth/2.0/identifier_select",
             "openid.claimed_id": "http://specs.openid.net/auth/2.0/identifier_select",

@@ -63,7 +63,7 @@ services:
         fromService:
           name: tikitaka-web
           type: web
-          property: host
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
       - key: JWT_SECRET
         sync: false
       - key: DJANGO_SECRET_KEY
@@ -105,7 +105,7 @@ services:
         fromService:
           name: tikitaka-api
           type: web
-          property: host
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
 
 # Cron jobs cannot use plan: free on Render. Scheduled ingestion is optional:
 # - OAuth login still triggers inline match sync (USE_CELERY_TASKS=false).

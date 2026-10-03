@@ -28,6 +28,10 @@ for _host_env in ("WEB_HOSTNAME", "RENDER_EXTERNAL_HOSTNAME"):
     if _host and _host not in ALLOWED_HOSTS:
         ALLOWED_HOSTS.append(_host)
 
+if os.environ.get("RENDER") or os.environ.get("RENDER_EXTERNAL_HOSTNAME"):
+    if ".onrender.com" not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(".onrender.com")
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -267,6 +271,7 @@ if os.environ.get("CLOUD_RUN", "").lower() in ("1", "true", "yes") or os.environ
 ).lower() in ("1", "true", "yes"):
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     USE_X_FORWARDED_HOST = True
+    CORS_ALLOWED_ORIGIN_REGEXES = [r"^https://.*\.onrender\.com$"]
 
 USE_CELERY_TASKS = os.environ.get("USE_CELERY_TASKS", "true").lower() in ("1", "true", "yes")
 
@@ -279,7 +284,10 @@ CSRF_HEADER_NAME = "HTTP_X_XSRF_TOKEN"
 CSRF_COOKIE_HTTPONLY = False
 CSRF_COOKIE_SAMESITE = COOKIE_SAMESITE
 CSRF_COOKIE_SECURE = COOKIE_SECURE
-CSRF_TRUSTED_ORIGINS = CORS_ALLOWED_ORIGINS
+CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
+if os.environ.get("RENDER"):
+    if "https://*.onrender.com" not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append("https://*.onrender.com")
 
 CSRF_EXEMPT_PATHS = (
     "/api/v1/auth/register",

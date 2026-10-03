@@ -31,6 +31,7 @@ from apps.accounts.services import (
     request_password_reset,
     reset_password,
     unlink_account,
+    unlink_game_account,
 )
 from apps.api.permissions import require_role, require_user
 from apps.api.services import (
@@ -168,6 +169,13 @@ def unlink_provider(request, provider):
     oauth_provider = _parse_provider(provider)
     unlink_account(user.id, oauth_provider.value)
     return api_success(None, f"{oauth_provider.value} unlinked successfully")
+
+
+@api_view(["DELETE"])
+def unlink_game(request, game_identifier):
+    user = require_user(request)
+    msg = unlink_game_account(user.id, game_identifier)
+    return api_success(get_current_user(user.email), msg)
 
 
 @api_view(["GET"])

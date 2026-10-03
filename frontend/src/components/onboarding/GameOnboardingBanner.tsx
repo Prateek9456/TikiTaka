@@ -96,10 +96,6 @@ export function GameOnboardingBanner({
       await refreshUser();
       if (result.matchSyncError) {
         setLinkError(result.matchSyncError.message);
-      } else if (result.matchSync && result.matchSync.matchesIngested === 0) {
-        setLinkError(
-          'Riot ID linked. No recent matches were returned—play a game or check RIOT_API_KEY and RIOT_DEFAULT_REGION in .env.',
-        );
       }
     } catch (err) {
       setLinkError(err instanceof ApiError ? err.message : 'Failed to link Riot ID');

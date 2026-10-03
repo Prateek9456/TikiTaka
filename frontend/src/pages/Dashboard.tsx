@@ -222,7 +222,6 @@ export function Dashboard() {
     gamesError,
     patternsError,
     leaderboardError,
-    latestMatchError,
     insightsReady,
     dismissInsightsReady,
     selectedGameId,
@@ -230,7 +229,7 @@ export function Dashboard() {
     leaderboard,
   } = useDashboard();
 
-  const hasError = gamesError || patternsError || leaderboardError || latestMatchError;
+  const hasError = Boolean(gamesError || patternsError || leaderboardError);
 
   return (
     <>

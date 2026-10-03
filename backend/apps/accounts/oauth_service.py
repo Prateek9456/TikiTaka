@@ -512,7 +512,7 @@ def _link_steam_game_accounts(user, steam_id):
 
     dota_account_id = str(int(steam_id) - 76561197960265728)
     for game_id, ext_id, meta in [
-        (1, dota_account_id, {"steam-id": steam_id}),
+        (1, dota_account_id, {"steam-id": steam_id, "dota-account-id": dota_account_id}),
         (2, steam_id, {"steam-id": steam_id}),
     ]:
         game = Game.objects.filter(id=game_id).first()

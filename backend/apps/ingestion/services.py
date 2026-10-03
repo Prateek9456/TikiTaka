@@ -179,9 +179,7 @@ def sync_user_matches(user_id, game_id=None, limit=5):
                 "externalMatchIds": [],
             })
 
-    if total == 0 and errors and len(errors) >= len(account_list):
-        first = errors[0]
-        raise IngestionError(first["error"], first.get("code", "INGESTION_ERROR"))
+    # Return errors cleanly in the response payload rather than crashing with HTTP 503
 
     return {
         "matchesIngested": total,

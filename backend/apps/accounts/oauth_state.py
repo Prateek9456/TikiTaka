@@ -4,6 +4,10 @@ import secrets
 from django.conf import settings
 from django.core.cache import cache
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 STATE_COOKIE = "oauth_state"
 LINK_USER_COOKIE = "oauth_link_user"
 REDIS_KEY_PREFIX = "oauth:state:"
@@ -16,7 +20,10 @@ def generate_state_token():
 
 def attach_oauth_state_cookies(response, state, link_user_id=None):
     payload = str(link_user_id) if link_user_id else ""
-    cache.set(f"{REDIS_KEY_PREFIX}{state}", payload, STATE_TTL)
+    try:
+        cache.set(f"{REDIS_KEY_PREFIX}{state}", payload, STATE_TTL)
+    except Exception as exc:
+        logger.warning("Could not persist OAuth state in cache: %s", exc)
 
     response.set_cookie(
         STATE_COOKIE,
@@ -57,9 +64,13 @@ def resolve_state_token(request):
 
 def validate_state(state, request):
     redis_key = f"{REDIS_KEY_PREFIX}{state}"
-    redis_payload = cache.get(redis_key)
-    if redis_payload is not None:
-        cache.delete(redis_key)
+    redis_payload = None
+    try:
+        redis_payload = cache.get(redis_key)
+        if redis_payload is not None:
+            cache.delete(redis_key)
+    except Exception as exc:
+        logger.warning("Could not retrieve OAuth state from cache: %s", exc)
 
     cookie_state = _read_cookie(request, STATE_COOKIE)
 

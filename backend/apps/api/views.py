@@ -1,9 +1,12 @@
+import logging
 from datetime import datetime, timezone
 
 from django.conf import settings
 from django.middleware.csrf import get_token
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.decorators import api_view
+
+logger = logging.getLogger(__name__)
 
 from apps.accounts.models import OAuthProvider
 from apps.accounts.oauth_service import (
@@ -169,8 +172,14 @@ def unlink_provider(request, provider):
 
 @api_view(["GET"])
 def oauth_start(request, provider):
-    oauth_provider = _parse_provider(provider)
-    return start_oauth(oauth_provider)
+    try:
+        oauth_provider = _parse_provider(provider)
+        return start_oauth(oauth_provider)
+    except TikitakaException as exc:
+        return _oauth_error_redirect(exc.code, exc.message)
+    except Exception as exc:
+        logger.exception("Failed to start OAuth for provider %s: %s", provider, exc)
+        return _oauth_error_redirect("OAUTH_START_FAILED", str(exc))
 
 
 @api_view(["GET"])

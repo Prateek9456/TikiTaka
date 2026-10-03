@@ -379,6 +379,16 @@ def _verify_steam_openid(request):
 def _fetch_steam_profile(steam_id):
     email = f"steam-{steam_id}@linked.tikitaka"
     if not settings.STEAM_API_KEY:
+        try:
+            resp = httpx.get(f"https://steamcommunity.com/profiles/{steam_id}/?xml=1", timeout=8.0)
+            if resp.status_code == 200:
+                name_m = re.search(r"<steamID><!\[CDATA\[(.*?)\]\]></steamID>", resp.text)
+                avatar_m = re.search(r"<avatarFull><!\[CDATA\[(.*?)\]\]></avatarFull>", resp.text)
+                name = name_m.group(1) if name_m else None
+                avatar = avatar_m.group(1) if avatar_m else None
+                return name, avatar, email
+        except Exception as exc:
+            logger.debug("Steam public XML fetch failed for %s: %s", steam_id, exc)
         return None, None, email
     resp = httpx.get(
         "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/",

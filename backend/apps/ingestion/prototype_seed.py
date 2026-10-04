@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -10,7 +11,7 @@ from hashlib import sha256
 from django.conf import settings
 from django.db import transaction
 
-from apps.accounts.models import UserGameAccount
+from apps.accounts.models import LinkedAccount, UserGameAccount
 from apps.games.models import Game, GameSession, Player, TacticalPattern
 from apps.ingestion.clients import normalize_riot_id_parts
 from apps.ingestion.riot_api import build_riot_link_metadata
@@ -27,166 +28,154 @@ PROTOTYPE_METADATA_FLAG = "prototypeDemo"
 VALORANT_GAME_ID = 3
 LOL_GAME_ID = 4
 
-VALORANT_PATTERNS: list[tuple[str, str, str, list[str], str, int]] = [
+VALORANT_PATTERNS = [
     (
         "a-main-split",
         "A Main Split Execute",
         "Coordinated A Main smoke into dual-site pressure with late lurk.",
         ["smoke_a_main", "flash_entry", "split_a_heaven", "plant_default"],
-        "0.6340",
-        412,
     ),
     (
         "b-site-retake",
         "B Site Retake",
         "Post-plant retake through Market with utility trade sequencing.",
         ["molly_default", "flash_market", "defuse_contest"],
-        "0.5875",
-        289,
     ),
     (
         "mid-control-to-c",
         "Mid Control → C Hit",
         "Mid map control converted into a fast C Long execute.",
         ["smoke_mid", "flash_c_long", "swing_garage"],
-        "0.5520",
-        356,
     ),
     (
         "default-plant-anchor",
         "Default Plant Anchor",
         "Standard site take with anchor hold on common post-plant angles.",
         ["entry_duel", "smoke_site", "plant_default", "hold_anchor"],
-        "0.6110",
-        501,
     ),
     (
         "fast-execute-a",
         "Fast A Execute",
         "Five-man rush through A Lobby after early pick.",
         ["dash_entry", "smoke_a_tree", "plant_open"],
-        "0.4980",
-        198,
     ),
     (
         "lurk-timing-c",
         "C Lurk Timing",
         "Delayed C push punishing rotating defenders.",
         ["lurk_c_long", "info_gather", "swing_late"],
-        "0.5710",
-        244,
     ),
     (
         "eco-b-lurk",
         "Eco B Lurk",
         "Low-buy round with silent B Main flank into site contact.",
         ["silent_walk", "flank_b_main", "contact_plant"],
-        "0.4460",
-        127,
     ),
     (
         "post-plant-retake",
         "Post-Plant Retake Chain",
         "Coordinated retake utility chain after defender plant.",
         ["molly_plant", "flash_swing", "trade_defuse"],
-        "0.6025",
-        331,
     ),
 ]
 
-LOL_PATTERNS: list[tuple[str, str, str, list[str], str, int]] = [
+LOL_PATTERNS = [
     (
         "dragon-soul-setup",
         "Dragon Soul Setup",
         "Vision layered into soul point contest with prio side waves.",
         ["ward_pit", "clear_side", "fight_dragon"],
-        "0.6180",
-        892,
     ),
     (
         "baron-vision-trap",
         "Baron Vision Trap",
         "Fake Baron into river pick before objective start.",
         ["sweeper_river", "bait_baron", "turn_fight"],
-        "0.5640",
-        445,
     ),
     (
         "bot-lane-dive",
         "Bot Lane Dive",
         "Tower dive after CC chain with jungle pathing sync.",
         ["cc_chain", "tower_dive", "plate_convert"],
-        "0.5310",
-        623,
     ),
     (
         "top-side-gank",
         "Top Side Gank",
         "Tri-brush gank into Herald setup and plate gold.",
         ["path_top", "gank_tri", "herald_take"],
-        "0.5890",
-        710,
     ),
     (
         "jungle-invade-counter",
         "Jungle Invade Counter",
         "Level-one invade punish into buff steal reversal.",
         ["invade_spot", "counter_gank", "buff_secure"],
-        "0.5075",
-        284,
     ),
     (
         "herald-to-tower",
         "Herald to Tower",
         "Herald charge into first turret plate conversion.",
         ["herald_charge", "plate_siege", "tower_dmg"],
-        "0.5775",
-        398,
     ),
     (
         "teamfight-flank",
         "Teamfight Flank",
         "Flank angle into backline during objective setup.",
         ["flank_angle", "engage_backline", "cleanup_fight"],
-        "0.5430",
-        556,
     ),
     (
         "split-push-pressure",
         "Split Push Pressure",
         "Side lane pressure forcing disengage from Baron dance.",
         ["push_side", "draw_rotations", "free_objective"],
-        "0.5965",
-        467,
     ),
 ]
 
-VALORANT_LADDER = [
-    ("NeonFade", 0.9312),
-    ("cyphr.io", 0.9184),
-    ("VCT_Aspirant", 0.9051),
-    ("smokegod99", 0.8927),
-    ("JettDiff_NA", 0.8810),
-    ("yuri3256", 0.8743),  # placeholder; replaced with riot id
-    ("clutchKING", 0.8615),
-    ("OmenMainEU", 0.8492),
-    ("reyna_one_tap", 0.8368),
-    ("sage_res", 0.8241),
-    ("viper_lineups", 0.8119),
+VALORANT_OPPONENTS_POOL = [
+    "NeonFade",
+    "cyphr.io",
+    "VCT_Aspirant",
+    "smokegod99",
+    "JettDiff_NA",
+    "clutchKING",
+    "OmenMainEU",
+    "reyna_one_tap",
+    "sage_res",
+    "viper_lineups",
+    "TenZ_Fan",
+    "DerkeSmurf",
+    "ChronicleEU",
+    "BoasterDance",
+    "ScreaM_Edshot",
+    "AspasCarry",
+    "YayElDiablo",
+    "cNedGod",
+    "AlfajerAnchor",
+    "Demon1Clutch",
+    "ZellsisVibes",
 ]
 
-LOL_LADDER = [
-    ("FakerFan2024", 0.9288),
-    ("jg_gap_real", 0.9156),
-    ("top_diff_pls", 0.9024),
-    ("support_roam", 0.8891),
-    ("mid_prio_king", 0.8765),
-    ("yuri3256", 0.8692),
-    ("adc_farm_sim", 0.8560),
-    ("baron_steal", 0.8437),
-    ("herald_rider", 0.8314),
-    ("vision_score", 0.8189),
-    ("split_push_1v9", 0.8062),
+LOL_OPPONENTS_POOL = [
+    "FakerFan2024",
+    "jg_gap_real",
+    "top_diff_pls",
+    "support_roam",
+    "mid_prio_king",
+    "adc_farm_sim",
+    "baron_steal",
+    "herald_rider",
+    "vision_score",
+    "split_push_1v9",
+    "ChovyCSGod",
+    "ShowMakerPlay",
+    "CapsCraps",
+    "DeftDance",
+    "KeriaGenius",
+    "BinSoloKill",
+    "RulerPenta",
+    "CanyonJungle",
+    "ZeusSoloQ",
+    "OnerSmite",
+    "GumayusiSteal",
 ]
 
 
@@ -205,9 +194,36 @@ def _demo_puuid(game_name: str, tag_line: str) -> str:
     return str(uuid.UUID(digest[:32]))
 
 
-def _upsert_patterns(game_id: int, specs: list[tuple[str, str, str, list[str], str, int]]) -> list[TacticalPattern]:
+def cleanup_prototype_data_for_user(user_id: int, game_id: int | None = None) -> None:
+    """Safely wipe previous prototype demo records for a user so fresh random stats populate cleanly."""
+    games = [game_id] if game_id else [VALORANT_GAME_ID, LOL_GAME_ID]
+    user_matches = UserMatch.objects.filter(user_id=user_id, game_id__in=games)
+    match_ids = list(user_matches.values_list("match_id", flat=True))
+
+    if match_ids:
+        MatchPatternOccurrence.objects.filter(match_id__in=match_ids).delete()
+        MatchEvent.objects.filter(match_id__in=match_ids).delete()
+        PlayerPerformanceScore.objects.filter(match_id__in=match_ids).delete()
+        user_matches.delete()
+        Match.objects.filter(id__in=match_ids, external_match_id__startswith="proto-").delete()
+
+    GameSession.objects.filter(
+        user_id=user_id,
+        game_id__in=games,
+        source="INFERRED",
+    ).delete()
+
+
+def _upsert_patterns(game_id: int, specs: list[tuple[str, str, str, list[str]]]) -> list[TacticalPattern]:
     patterns: list[TacticalPattern] = []
-    for slug, name, description, sequence, win_rate, sample_size in specs:
+    # Dynamic realistic ranges based on game
+    is_val = game_id == VALORANT_GAME_ID
+    min_wr, max_wr = (0.4700, 0.6800) if is_val else (0.4800, 0.6600)
+    min_samples, max_samples = (180, 680) if is_val else (380, 1280)
+
+    for slug, name, description, sequence in specs:
+        rand_wr = round(random.uniform(min_wr, max_wr), 4)
+        rand_samples = random.randint(min_samples, max_samples)
         pattern, _ = TacticalPattern.objects.update_or_create(
             game_id=game_id,
             pattern_slug=slug,
@@ -215,12 +231,33 @@ def _upsert_patterns(game_id: int, specs: list[tuple[str, str, str, list[str], s
                 "pattern_name": name,
                 "description": description,
                 "event_sequence": sequence,
-                "win_rate": Decimal(win_rate),
-                "sample_size": sample_size,
+                "win_rate": Decimal(f"{rand_wr:.4f}"),
+                "sample_size": rand_samples,
             },
         )
         patterns.append(pattern)
     return patterns
+
+
+def _build_random_ladder(game_id: int, riot_display: str) -> tuple[list[tuple[str, float]], int]:
+    pool = VALORANT_OPPONENTS_POOL if game_id == VALORANT_GAME_ID else LOL_OPPONENTS_POOL
+    opponents = random.sample(pool, 10)
+
+    # Place the user at a realistic competitive rank (e.g. #2 to #6)
+    user_rank_index = random.randint(1, 5)
+    user_name = riot_display.split("#")[0]
+
+    # Monotonically descending scores
+    curr_score = round(random.uniform(0.9250, 0.9550), 4)
+    ladder: list[tuple[str, float]] = []
+    for idx in range(11):
+        if idx == user_rank_index:
+            ladder.append((user_name, curr_score))
+        else:
+            ladder.append((opponents.pop(0), curr_score))
+        curr_score = round(curr_score - random.uniform(0.0080, 0.0160), 4)
+
+    return ladder, user_rank_index
 
 
 def _seed_match_for_user(
@@ -230,16 +267,20 @@ def _seed_match_for_user(
     riot_display: str,
     patterns: list[TacticalPattern],
     *,
-    duration_seconds: int,
-    event_count: int,
-    hours_ago: float,
-    ladder: list[tuple[str, float]],
-    user_rank_index: int,
     external_suffix: str,
 ) -> Match:
     now = datetime.now(timezone.utc)
+    is_val = game_id == VALORANT_GAME_ID
+
+    # Realistic randomized match parameters
+    duration_seconds = (
+        random.randint(31 * 60, 45 * 60) if is_val else random.randint(23 * 60, 37 * 60)
+    )
+    event_count = random.randint(145, 235) if is_val else random.randint(185, 310)
+    hours_ago = round(random.uniform(0.4, 2.8), 2) if is_val else round(random.uniform(0.8, 4.5), 2)
     played_at = now - timedelta(hours=hours_ago)
-    external_match_id = f"proto-{external_suffix}-{user_id}-{puuid[:8]}"
+    nonce = random.randint(1000, 9999)
+    external_match_id = f"proto-{external_suffix}-{user_id}-{puuid[:8]}-{nonce}"
 
     match, _ = Match.objects.update_or_create(
         game_id=game_id,
@@ -253,31 +294,43 @@ def _seed_match_for_user(
     )
 
     MatchEvent.objects.filter(match=match).delete()
+    step_ms = max(5_000, int((duration_seconds * 1000) / max(event_count, 1)))
+    events_to_create = []
     for i in range(event_count):
-        MatchEvent.objects.create(
-            match=match,
-            event_type="round_event" if game_id == VALORANT_GAME_ID else "game_event",
-            timestamp_ms=i * 11_000,
-            actor_id=puuid if i % 3 == 0 else f"ally-{i % 5}",
-            metadata={"index": i},
+        events_to_create.append(
+            MatchEvent(
+                match=match,
+                event_type="round_event" if is_val else "game_event",
+                timestamp_ms=min(i * step_ms + random.randint(100, 1500), duration_seconds * 1000),
+                actor_id=puuid if i % 3 == 0 else f"ally-{i % 5}",
+                metadata={"index": i},
+            )
         )
+    MatchEvent.objects.bulk_create(events_to_create)
 
     MatchPatternOccurrence.objects.filter(match=match).delete()
-    occurrence_specs = [
-        (patterns[0], 145_000, "0.9100"),
-        (patterns[1], 612_000, "0.8400"),
-        (patterns[2], 1_045_000, "0.7900"),
-        (patterns[3], 1_388_000, "0.8800"),
-        (patterns[4], 1_720_000, "0.7600"),
-        (patterns[5], 2_010_000, "0.8200"),
-    ]
-    for pattern, ts, confidence in occurrence_specs:
-        MatchPatternOccurrence.objects.create(
-            match=match,
-            pattern=pattern,
-            timestamp_ms=ts,
-            confidence_score=Decimal(confidence),
+    # Pick 5 to 7 random patterns with distributed timestamps across the match
+    occurrence_count = random.randint(5, min(7, len(patterns)))
+    chosen_patterns = random.sample(patterns, occurrence_count)
+    pattern_timestamps = sorted(
+        random.sample(
+            range(int(duration_seconds * 100), int(duration_seconds * 950)),
+            k=occurrence_count,
         )
+    )
+
+    occurrences_to_create = []
+    for pat, ts in zip(chosen_patterns, pattern_timestamps, strict=True):
+        rand_conf = round(random.uniform(0.7400, 0.9450), 4)
+        occurrences_to_create.append(
+            MatchPatternOccurrence(
+                match=match,
+                pattern=pat,
+                timestamp_ms=ts,
+                confidence_score=Decimal(f"{rand_conf:.4f}"),
+            )
+        )
+    MatchPatternOccurrence.objects.bulk_create(occurrences_to_create)
 
     user_player, _ = Player.objects.update_or_create(
         game_id=game_id,
@@ -289,22 +342,30 @@ def _seed_match_for_user(
         },
     )
 
+    # Ladder & Leaderboard
+    ladder, user_rank_index = _build_random_ladder(game_id, riot_display)
     PlayerPerformanceScore.objects.filter(match=match).delete()
+
+    ladder_scores_to_create = []
     for idx, (name, score) in enumerate(ladder):
-        display_name = riot_display.split("#")[0] if idx == user_rank_index else name
-        external_id = puuid if idx == user_rank_index else f"proto-ladder-{game_id}-{idx}"
+        is_user = idx == user_rank_index
+        display_name = riot_display.split("#")[0] if is_user else name
+        external_id = puuid if is_user else f"proto-ladder-{game_id}-{idx}"
         player, _ = Player.objects.update_or_create(
             game_id=game_id,
             external_player_id=external_id,
             defaults={"username": display_name, "region": settings.RIOT_DEFAULT_REGION},
         )
-        PlayerPerformanceScore.objects.create(
-            player=player,
-            match=match,
-            pattern=patterns[idx % len(patterns)],
-            score=Decimal(str(score)),
-            computed_at=now,
+        ladder_scores_to_create.append(
+            PlayerPerformanceScore(
+                player=player,
+                match=match,
+                pattern=patterns[idx % len(patterns)],
+                score=Decimal(f"{score:.4f}"),
+                computed_at=now,
+            )
         )
+    PlayerPerformanceScore.objects.bulk_create(ladder_scores_to_create)
 
     UserMatch.objects.update_or_create(
         user_id=user_id,
@@ -327,31 +388,43 @@ def _seed_match_for_user(
 def _seed_sessions(user_id: int, game_id: int) -> None:
     now = datetime.now(timezone.utc)
     GameSession.objects.filter(user_id=user_id, game_id=game_id, source="INFERRED").delete()
-    offsets = [6, 30, 54, 120, 168]
-    for hours_back, match_count in zip(offsets, [3, 2, 4, 1, 2], strict=True):
-        start = now - timedelta(hours=hours_back)
-        end = start + timedelta(hours=2, minutes=15)
-        GameSession.objects.create(
-            user_id=user_id,
-            game_id=game_id,
-            started_at=start,
-            ended_at=end,
-            match_count=match_count,
-            source="INFERRED",
+
+    # 5 sessions across past 7 days with realistic durations and match counts
+    offsets = [
+        random.randint(4, 9),
+        random.randint(22, 34),
+        random.randint(48, 62),
+        random.randint(92, 114),
+        random.randint(142, 168),
+    ]
+    sessions_to_create = []
+    for hours_back in offsets:
+        start = now - timedelta(hours=hours_back, minutes=random.randint(5, 45))
+        duration_minutes = random.randint(75, 195)
+        end = start + timedelta(minutes=duration_minutes)
+        match_count = random.randint(1, 4)
+        sessions_to_create.append(
+            GameSession(
+                user_id=user_id,
+                game_id=game_id,
+                started_at=start,
+                ended_at=end,
+                match_count=match_count,
+                source="INFERRED",
+            )
         )
+    GameSession.objects.bulk_create(sessions_to_create)
 
 
 @transaction.atomic
 def seed_prototype_data_for_user(user_id: int, game_name: str, tag_line: str) -> dict:
+    """Generate realistic randomized prototype statistics and matches for Valorant and LoL."""
     game_name, tag_line = normalize_riot_id_parts(game_name, tag_line)
     puuid = _demo_puuid(game_name, tag_line)
-    routing_region = (settings.RIOT_DEFAULT_REGION or "americas").lower()
-    metadata = {
-        **build_riot_link_metadata(game_name, tag_line, routing_region),
-        PROTOTYPE_METADATA_FLAG: True,
-        "puuid": puuid,
-    }
     riot_display = f"{game_name}#{tag_line}"
+
+    # Clean up any stale prototype records for this user first
+    cleanup_prototype_data_for_user(user_id)
 
     val_patterns = _upsert_patterns(VALORANT_GAME_ID, VALORANT_PATTERNS)
     lol_patterns = _upsert_patterns(LOL_GAME_ID, LOL_PATTERNS)
@@ -362,11 +435,6 @@ def seed_prototype_data_for_user(user_id: int, game_name: str, tag_line: str) ->
         puuid,
         riot_display,
         val_patterns,
-        duration_seconds=42 * 60 + 15,
-        event_count=168,
-        hours_ago=2.4,
-        ladder=VALORANT_LADDER,
-        user_rank_index=5,
         external_suffix="val",
     )
     lol_match = _seed_match_for_user(
@@ -375,11 +443,6 @@ def seed_prototype_data_for_user(user_id: int, game_name: str, tag_line: str) ->
         puuid,
         riot_display,
         lol_patterns,
-        duration_seconds=30 * 60 + 47,
-        event_count=214,
-        hours_ago=5.1,
-        ladder=LOL_LADDER,
-        user_rank_index=5,
         external_suffix="lol",
     )
 
@@ -424,6 +487,7 @@ def link_riot_prototype_demo(user_id: int, game_name: str, tag_line: str) -> tup
         "puuid": puuid,
     }
 
+    # Upsert UserGameAccount for Valorant and LoL
     for game_id in (VALORANT_GAME_ID, LOL_GAME_ID):
         game = Game.objects.filter(id=game_id).first()
         if game:
@@ -435,6 +499,17 @@ def link_riot_prototype_demo(user_id: int, game_name: str, tag_line: str) -> tup
                     "metadata": metadata,
                 },
             )
+
+    # Also upsert LinkedAccount for RIOT so that settings / account profile displays it properly
+    LinkedAccount.objects.update_or_create(
+        user_id=user_id,
+        provider="RIOT",
+        defaults={
+            "provider_user_id": puuid,
+            "display_name": f"{game_name}#{tag_line}",
+            "access_token": "",
+        },
+    )
 
     sync_result = seed_prototype_data_for_user(user_id, game_name, tag_line)
     return sync_result, None

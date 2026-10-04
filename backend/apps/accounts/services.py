@@ -284,6 +284,13 @@ def link_account(user, provider, provider_user_id, email=None, display_name=None
 
 def unlink_account(user_id, provider):
     deleted, _ = LinkedAccount.objects.filter(user_id=user_id, provider=provider).delete()
+    if provider == "RIOT":
+        UserGameAccount.objects.filter(user_id=user_id, game_id__in=[3, 4]).delete()
+        if getattr(settings, "PROTOTYPE_DEMO", False):
+            from apps.ingestion.prototype_seed import cleanup_prototype_data_for_user
+
+            cleanup_prototype_data_for_user(user_id)
+        return
     if not deleted:
         raise TikitakaException(f"No linked {provider} account found", 404, "LINK_NOT_FOUND")
 

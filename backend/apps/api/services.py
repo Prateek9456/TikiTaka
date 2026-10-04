@@ -187,6 +187,11 @@ def get_auth_sessions(user_id):
 
 
 def get_game_sessions(user_id, game_id=None, from_dt=None, to_dt=None):
+    if game_id:
+        from apps.ingestion.prototype_seed import ensure_prototype_dashboard_data
+
+        ensure_prototype_dashboard_data(user_id, game_id)
+
     from_dt = from_dt or datetime(1970, 1, 1, tzinfo=timezone.utc)
     to_dt = to_dt or datetime.now(timezone.utc)
 

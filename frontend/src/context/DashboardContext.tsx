@@ -57,8 +57,8 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   );
   const linkedProviders = user?.linkedAccounts.map((account) => account.provider) ?? [];
 
-  const { data: patterns, error: patternsError } = usePatterns(selectedGameId);
-  const { data: leaderboard, error: leaderboardError } = useLeaderboard(selectedGameId);
+  const { data: patterns, error: patternsError, refetch: refetchPatterns } = usePatterns(selectedGameId);
+  const { data: leaderboard, error: leaderboardError, refetch: refetchLeaderboard } = useLeaderboard(selectedGameId);
   const {
     data: latestMatch,
     loading: latestMatchLoading,
@@ -66,9 +66,20 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     analyzing,
     polling,
     insightsReady,
-    refetch: refetchLatestMatch,
+    refetch: refetchMatchOnly,
     dismissInsightsReady,
   } = usePersonalLatestMatch(selectedGameId, hasLinkedAccount);
+
+  const refetchLatestMatch = () => {
+    refetchMatchOnly();
+    refetchPatterns();
+    refetchLeaderboard();
+  };
+
+  useEffect(() => {
+    refetchPatterns();
+    refetchLeaderboard();
+  }, [user?.gameAccounts]);
 
   useEffect(() => {
     if (games.length > 0 && selectedGameId === null) {

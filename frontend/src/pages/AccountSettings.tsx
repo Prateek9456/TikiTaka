@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ApiError, syncMyMatches, unlinkProvider } from '../api/client';
+import { ApiError, linkRiotById, syncMyMatches, unlinkProvider } from '../api/client';
 import { GameLogo } from '../components/brand/GameLogo';
 import { OAuthProviderIcon } from '../components/auth/OAuthProviderIcon';
 import { Toast } from '../components/ui/Toast';
@@ -197,6 +197,8 @@ function GameAccountCard({
   gameAccount,
   missingProviders,
   onLinkProvider,
+  onLinkRiotId,
+  onUnlinkRiot,
   linking,
 }: {
   game: Game;
@@ -204,11 +206,16 @@ function GameAccountCard({
   gameAccount: { externalPlayerId: string; riotId?: string } | undefined;
   missingProviders: OAuthProvider[];
   onLinkProvider: (provider: OAuthProvider) => void;
+  onLinkRiotId?: (name: string, tag: string) => Promise<void>;
+  onUnlinkRiot?: () => Promise<void>;
   linking: OAuthProvider | null;
 }) {
   const statusConfig = STATUS_CONFIG[status];
   const StatusIcon = statusConfig.icon;
   const requirements = GAME_LINK_REQUIREMENTS[game.slug];
+  const isRiotGame = game.slug === 'valorant' || game.slug === 'lol';
+  const [riotId, setRiotId] = useState('');
+  const [riotTag, setRiotTag] = useState('');
 
   return (
     <div className="card p-5">
@@ -243,12 +250,66 @@ function GameAccountCard({
           ) : null}
 
           {status === 'not_connected' && requirements ? (
-            <p className="mt-2 text-sm text-slate-400">{requirements.description}</p>
+            <p className="mt-2 text-sm text-slate-400">
+              {isRiotGame
+                ? 'Enter any random Riot ID and tag below to generate realistic demo match analytics.'
+                : requirements.description}
+            </p>
           ) : null}
         </div>
+
+        {isRiotGame && gameAccount && onUnlinkRiot ? (
+          <button
+            type="button"
+            onClick={() => void onUnlinkRiot()}
+            disabled={linking === 'RIOT'}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border px-3 py-1.5 text-xs text-slate-300 transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-60"
+          >
+            {linking === 'RIOT' ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Unlink className="h-3.5 w-3.5" />
+            )}
+            Unlink
+          </button>
+        ) : null}
       </div>
 
-      {missingProviders.length > 0 ? (
+      {isRiotGame && !gameAccount && onLinkRiotId ? (
+        <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-surface-border pt-4">
+          <label className="flex flex-col gap-1 text-xs text-slate-400">
+            Riot ID
+            <input
+              value={riotId}
+              onChange={(e) => setRiotId(e.target.value)}
+              placeholder="e.g. TenZ, Faker"
+              className="rounded-lg border border-surface-border bg-slate-900 px-3 py-2 text-sm text-white"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-slate-400">
+            Tag
+            <input
+              value={riotTag}
+              onChange={(e) => setRiotTag(e.target.value)}
+              placeholder="NA1"
+              className="w-20 rounded-lg border border-surface-border bg-slate-900 px-3 py-2 text-sm text-white"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => void onLinkRiotId(riotId, riotTag)}
+            disabled={linking === 'RIOT' || !riotId.trim() || !riotTag.trim()}
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${PROVIDER_STYLES.RIOT}`}
+          >
+            {linking === 'RIOT' ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <OAuthProviderIcon provider="RIOT" className="h-4 w-4 brightness-0 invert" />
+            )}
+            Link Riot ID
+          </button>
+        </div>
+      ) : missingProviders.length > 0 ? (
         <div className="mt-4 flex flex-wrap gap-2 border-t border-surface-border pt-4">
           {missingProviders.map((provider) => (
             <button
@@ -279,7 +340,7 @@ function GameAccountCard({
 export function AccountSettings() {
   const { user, refreshUser } = useAuth();
   const { data: games, loading: gamesLoading } = useGames();
-  const { providers: configuredProviders } = useOAuthProviders();
+  const { providers: configuredProviders, riotIdLink } = useOAuthProviders();
   const [searchParams, setSearchParams] = useSearchParams();
   const [linking, setLinking] = useState<OAuthProvider | null>(null);
   const [unlinking, setUnlinking] = useState<OAuthProvider | null>(null);
@@ -335,6 +396,11 @@ export function AccountSettings() {
 
   async function handleLink(provider: OAuthProvider) {
     if (!configuredProviderSet.has(provider)) {
+      if (provider === 'RIOT' && riotIdLink) {
+        const el = document.getElementById('game-accounts-section');
+        if (el) el.scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
       setActionError(
         `${PROVIDER_LABELS[provider]} OAuth is not configured yet. Add its client credentials to .env and restart the backend.`,
       );
@@ -347,6 +413,21 @@ export function AccountSettings() {
       await startProviderLink(provider);
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to start provider link');
+      setLinking(null);
+    }
+  }
+
+  async function handleLinkRiot(gameName: string, tagLine: string) {
+    setActionError(null);
+    setLinking('RIOT');
+    try {
+      const tag = tagLine.trim().replace(/^#+/, '');
+      await linkRiotById(gameName.trim(), tag);
+      await refreshUser();
+      setLinkedToast(`Linked Riot ID ${gameName}#${tag} successfully`);
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Failed to link Riot ID');
+    } finally {
       setLinking(null);
     }
   }
@@ -439,7 +520,7 @@ export function AccountSettings() {
                 key={provider}
                 provider={provider}
                 linkedAccount={linkedByProvider.get(provider)}
-                configured={configuredProviderSet.has(provider)}
+                configured={configuredProviderSet.has(provider) || (provider === 'RIOT' && riotIdLink)}
                 onLink={handleLink}
                 onUnlink={handleUnlink}
                 linking={linking}
@@ -449,7 +530,7 @@ export function AccountSettings() {
           </div>
         </section>
 
-        <section>
+        <section id="game-accounts-section">
           <h2 className="mb-4 text-sm font-medium uppercase tracking-wide text-slate-500">
             Game accounts
           </h2>
@@ -479,6 +560,8 @@ export function AccountSettings() {
                     gameAccount={gameAccount}
                     missingProviders={hasGameAccount ? [] : missingProviders}
                     onLinkProvider={handleLink}
+                    onLinkRiotId={handleLinkRiot}
+                    onUnlinkRiot={() => handleUnlink('RIOT')}
                     linking={linking}
                   />
                 );

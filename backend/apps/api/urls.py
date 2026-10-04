@@ -13,6 +13,7 @@ urlpatterns = [
     path("auth/me", views.me),
     path("auth/link/riot/by-id", views.link_riot_by_id),
     path("auth/link/faceit/by-nickname", views.link_faceit_by_nickname),
+    path("auth/link/game/<int:game_id>", views.unlink_game),
     path("auth/link/<str:provider>", views.link_provider),
     path("auth/oauth/providers", views.oauth_providers),
     path("auth/oauth/providers/status", views.oauth_provider_status),

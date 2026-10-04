@@ -8,7 +8,15 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.db import transaction
 
-from apps.accounts.models import AuthSession, LinkedAccount, OAuthProvider, PasswordResetOtp, User, UserRole
+from apps.accounts.models import (
+    AuthSession,
+    LinkedAccount,
+    OAuthProvider,
+    PasswordResetOtp,
+    User,
+    UserGameAccount,
+    UserRole,
+)
 from apps.accounts.password import hash_password, verify_password
 from apps.accounts.token_encryption import decrypt_token, encrypt_token
 from apps.core.exceptions import TikitakaException
@@ -282,7 +290,25 @@ def link_account(user, provider, provider_user_id, email=None, display_name=None
     return la
 
 
-def unlink_account(user_id, provider):
+def unlink_account(user_id, provider=None, game_id=None):
+    if game_id is not None:
+        UserGameAccount.objects.filter(user_id=user_id, game_id=game_id).delete()
+        if getattr(settings, "PROTOTYPE_DEMO", False):
+            from apps.ingestion.prototype_seed import cleanup_prototype_data_for_user
+
+            cleanup_prototype_data_for_user(user_id, game_id=game_id)
+
+        # If it was a Riot game and no more Riot games are linked, also remove LinkedAccount
+        if game_id in (3, 4):
+            remaining_riot = UserGameAccount.objects.filter(user_id=user_id, game_id__in=[3, 4]).first()
+            if not remaining_riot:
+                LinkedAccount.objects.filter(user_id=user_id, provider="RIOT").delete()
+            elif isinstance(remaining_riot.metadata, dict) and remaining_riot.metadata.get("riot-id"):
+                LinkedAccount.objects.filter(user_id=user_id, provider="RIOT").update(
+                    display_name=remaining_riot.metadata["riot-id"]
+                )
+        return
+
     deleted, _ = LinkedAccount.objects.filter(user_id=user_id, provider=provider).delete()
     if provider == "RIOT":
         UserGameAccount.objects.filter(user_id=user_id, game_id__in=[3, 4]).delete()
@@ -318,7 +344,7 @@ def get_oauth_provider_status():
     return status
 
 
-def link_riot_games_by_riot_id(user_id, game_name, tag_line):
+def link_riot_games_by_riot_id(user_id, game_name, tag_line, game_id=None):
     import httpx
     from apps.accounts.models import UserGameAccount
     from apps.games.models import Game
@@ -329,7 +355,7 @@ def link_riot_games_by_riot_id(user_id, game_name, tag_line):
     if getattr(settings, "PROTOTYPE_DEMO", False):
         from apps.ingestion.prototype_seed import link_riot_prototype_demo
 
-        return link_riot_prototype_demo(user_id, game_name, tag_line)
+        return link_riot_prototype_demo(user_id, game_name, tag_line, game_id=game_id)
 
     if not settings.RIOT_API_KEY:
         raise TikitakaException("Riot API key is not configured", 503, "RIOT_API_NOT_CONFIGURED")
@@ -367,8 +393,9 @@ def link_riot_games_by_riot_id(user_id, game_name, tag_line):
 
     metadata = build_riot_link_metadata(game_name, tag_line, routing_region)
 
-    for game_id in (3, 4):
-        game = Game.objects.filter(id=game_id).first()
+    target_game_ids = [game_id] if game_id in (3, 4) else (3, 4)
+    for g_id in target_game_ids:
+        game = Game.objects.filter(id=g_id).first()
         if game:
             UserGameAccount.objects.update_or_create(
                 user_id=user_id,

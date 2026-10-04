@@ -145,6 +145,12 @@ def sync_user_matches(user_id, game_id=None, limit=5):
         return prototype_sync_result(user_id, game_id)
 
     for account in account_list:
+        if prototype_demo_enabled() and is_prototype_account(account):
+            proto_res = prototype_sync_result(user_id, account.game_id)
+            total += proto_res.get("matchesIngested", 0)
+            games_result.extend(proto_res.get("games", []))
+            continue
+
         ctx = {
             "external_player_id": account.external_player_id,
             "metadata": account.metadata,
@@ -244,8 +250,12 @@ def run_scheduled_ingestion():
 
 
 def poll_user_matches():
+    from apps.ingestion.prototype_seed import is_prototype_account, prototype_demo_enabled
+
     accounts = UserGameAccount.objects.exclude(external_player_id="").select_related("game")
     for account in accounts:
+        if prototype_demo_enabled() and is_prototype_account(account):
+            continue
         ctx = {"external_player_id": account.external_player_id, "metadata": account.metadata}
         try:
             strategy = get_strategy(account.game_id, ctx)

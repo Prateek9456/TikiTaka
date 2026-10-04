@@ -94,7 +94,7 @@ export function GameOnboardingBanner({
     setLinking('riot-id');
     try {
       const tag = riotTag.trim().replace(/^#+/, '');
-      const result = await linkRiotById(riotId.trim(), tag);
+      const result = await linkRiotById(riotId.trim(), tag, game.id);
       await refreshUser();
       if (result.matchSyncError) {
         setLinkError(result.matchSyncError.message);

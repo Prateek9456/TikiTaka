@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ApiError, linkRiotById, syncMyMatches, unlinkProvider } from '../api/client';
+import { ApiError, linkRiotById, syncMyMatches, unlinkGameAccount, unlinkProvider } from '../api/client';
 import { GameLogo } from '../components/brand/GameLogo';
 import { OAuthProviderIcon } from '../components/auth/OAuthProviderIcon';
 import { Toast } from '../components/ui/Toast';
@@ -200,15 +200,17 @@ function GameAccountCard({
   onLinkRiotId,
   onUnlinkRiot,
   linking,
+  unlinking,
 }: {
   game: Game;
   status: GameAccountStatus;
   gameAccount: { externalPlayerId: string; riotId?: string } | undefined;
   missingProviders: OAuthProvider[];
   onLinkProvider: (provider: OAuthProvider) => void;
-  onLinkRiotId?: (name: string, tag: string) => Promise<void>;
+  onLinkRiotId?: (name: string, tag: string, gameId?: number) => Promise<void>;
   onUnlinkRiot?: () => Promise<void>;
   linking: OAuthProvider | null;
+  unlinking?: boolean;
 }) {
   const statusConfig = STATUS_CONFIG[status];
   const StatusIcon = statusConfig.icon;
@@ -262,10 +264,10 @@ function GameAccountCard({
           <button
             type="button"
             onClick={() => void onUnlinkRiot()}
-            disabled={linking === 'RIOT'}
+            disabled={Boolean(unlinking || linking === 'RIOT')}
             className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border px-3 py-1.5 text-xs text-slate-300 transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-60"
           >
-            {linking === 'RIOT' ? (
+            {unlinking ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Unlink className="h-3.5 w-3.5" />
@@ -297,7 +299,7 @@ function GameAccountCard({
           </label>
           <button
             type="button"
-            onClick={() => void onLinkRiotId(riotId, riotTag)}
+            onClick={() => void onLinkRiotId(riotId, riotTag, game.id)}
             disabled={linking === 'RIOT' || !riotId.trim() || !riotTag.trim()}
             className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${PROVIDER_STYLES.RIOT}`}
           >
@@ -344,6 +346,7 @@ export function AccountSettings() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [linking, setLinking] = useState<OAuthProvider | null>(null);
   const [unlinking, setUnlinking] = useState<OAuthProvider | null>(null);
+  const [unlinkingGameId, setUnlinkingGameId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [linkedToast, setLinkedToast] = useState<string | null>(null);
 
@@ -417,18 +420,35 @@ export function AccountSettings() {
     }
   }
 
-  async function handleLinkRiot(gameName: string, tagLine: string) {
+  async function handleLinkRiot(gameName: string, tagLine: string, gameId?: number) {
     setActionError(null);
     setLinking('RIOT');
     try {
       const tag = tagLine.trim().replace(/^#+/, '');
-      await linkRiotById(gameName.trim(), tag);
+      await linkRiotById(gameName.trim(), tag, gameId);
       await refreshUser();
       setLinkedToast(`Linked Riot ID ${gameName}#${tag} successfully`);
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : 'Failed to link Riot ID');
     } finally {
       setLinking(null);
+    }
+  }
+
+  async function handleUnlinkGame(gameId: number, gameName: string) {
+    if (!window.confirm(`Unlink your Riot account from ${gameName}?`)) {
+      return;
+    }
+
+    setActionError(null);
+    setUnlinkingGameId(gameId);
+    try {
+      await unlinkGameAccount(gameId);
+      await refreshUser();
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : `Failed to unlink ${gameName}`);
+    } finally {
+      setUnlinkingGameId(null);
     }
   }
 
@@ -561,8 +581,9 @@ export function AccountSettings() {
                     missingProviders={hasGameAccount ? [] : missingProviders}
                     onLinkProvider={handleLink}
                     onLinkRiotId={handleLinkRiot}
-                    onUnlinkRiot={() => handleUnlink('RIOT')}
+                    onUnlinkRiot={() => handleUnlinkGame(game.id, game.name)}
                     linking={linking}
+                    unlinking={unlinkingGameId === game.id}
                   />
                 );
               })}

@@ -228,11 +228,21 @@ export async function unlinkProvider(provider: string): Promise<void> {
   });
 }
 
-export async function linkRiotById(riotId: string, tag: string): Promise<import('../types/api').MeResponse> {
+export async function unlinkGameAccount(gameId: number): Promise<void> {
+  await fetchApi<null>(`/auth/link/game/${gameId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function linkRiotById(
+  riotId: string,
+  tag: string,
+  gameId?: number,
+): Promise<import('../types/api').MeResponse> {
   return fetchApi<import('../types/api').MeResponse>('/auth/link/riot/by-id', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ riotId, tag }),
+    body: JSON.stringify({ riotId, tag, gameId }),
   });
 }
 

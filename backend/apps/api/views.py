@@ -124,7 +124,13 @@ def link_provider(request, provider):
     user = require_user(request)
     oauth_provider = _parse_provider(provider)
     if request.method == "DELETE":
-        unlink_account(user.id, oauth_provider.value)
+        game_id = request.query_params.get("game_id") or request.query_params.get("gameId")
+        if game_id is not None:
+            try:
+                game_id = int(game_id)
+            except (ValueError, TypeError):
+                game_id = None
+        unlink_account(user.id, provider=oauth_provider.value, game_id=game_id)
         return api_success(None, f"{oauth_provider.value} unlinked successfully")
     redirect_url, cookie_carrier = prepare_oauth_link_start(oauth_provider, user.id)
     response = api_success({"redirectUrl": redirect_url})
@@ -136,17 +142,24 @@ def link_provider(request, provider):
 def link_riot_by_id(request):
     user = require_user(request)
     data = request.data
+    game_id = data.get("gameId") or data.get("game_id")
+    if game_id is not None:
+        try:
+            game_id = int(game_id)
+        except (ValueError, TypeError):
+            game_id = None
     match_sync, match_sync_error = link_riot_games_by_riot_id(
         user.id,
         data.get("riotId") or data.get("gameName"),
         data.get("tag") or data.get("tagLine"),
+        game_id=game_id,
     )
     payload = get_current_user(user.email)
     if match_sync is not None:
         payload = {**payload, "matchSync": match_sync}
     if match_sync_error is not None:
         payload = {**payload, "matchSyncError": match_sync_error}
-    message = "Valorant and LoL linked via Riot ID"
+    message = "Riot account linked successfully"
     if match_sync_error and not match_sync:
         message = f"Riot ID linked, but match sync failed: {match_sync_error['message']}"
     return api_success(payload, message)
@@ -163,8 +176,21 @@ def link_faceit_by_nickname(request):
 def unlink_provider(request, provider):
     user = require_user(request)
     oauth_provider = _parse_provider(provider)
-    unlink_account(user.id, oauth_provider.value)
+    game_id = request.query_params.get("game_id") or request.query_params.get("gameId")
+    if game_id is not None:
+        try:
+            game_id = int(game_id)
+        except (ValueError, TypeError):
+            game_id = None
+    unlink_account(user.id, provider=oauth_provider.value, game_id=game_id)
     return api_success(None, f"{oauth_provider.value} unlinked successfully")
+
+
+@api_view(["DELETE"])
+def unlink_game(request, game_id):
+    user = require_user(request)
+    unlink_account(user.id, game_id=int(game_id))
+    return api_success(None, "Game account unlinked successfully")
 
 
 @api_view(["GET"])

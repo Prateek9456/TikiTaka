@@ -204,8 +204,7 @@ def cleanup_prototype_data_for_user(user_id: int, game_id: int | None = None) ->
         MatchPatternOccurrence.objects.filter(match_id__in=match_ids).delete()
         MatchEvent.objects.filter(match_id__in=match_ids).delete()
         PlayerPerformanceScore.objects.filter(match_id__in=match_ids).delete()
-        user_matches.delete()
-        Match.objects.filter(id__in=match_ids, external_match_id__startswith="proto-").delete()
+        Match.objects.filter(id__in=match_ids).delete()
 
     GameSession.objects.filter(
         user_id=user_id,
@@ -279,8 +278,11 @@ def _seed_match_for_user(
     event_count = random.randint(145, 235) if is_val else random.randint(185, 310)
     hours_ago = round(random.uniform(0.4, 2.8), 2) if is_val else round(random.uniform(0.8, 4.5), 2)
     played_at = now - timedelta(hours=hours_ago)
-    nonce = random.randint(1000, 9999)
-    external_match_id = f"proto-{external_suffix}-{user_id}-{puuid[:8]}-{nonce}"
+    if is_val:
+        external_match_id = str(uuid.uuid4())
+    else:
+        region_prefix = (settings.RIOT_DEFAULT_REGION or "NA1").upper()
+        external_match_id = f"{region_prefix}_{random.randint(5100000000, 5299999999)}"
 
     match, _ = Match.objects.update_or_create(
         game_id=game_id,
@@ -350,7 +352,7 @@ def _seed_match_for_user(
     for idx, (name, score) in enumerate(ladder):
         is_user = idx == user_rank_index
         display_name = riot_display.split("#")[0] if is_user else name
-        external_id = puuid if is_user else f"proto-ladder-{game_id}-{idx}"
+        external_id = puuid if is_user else sha256(f"riot-{game_id}-{name}".encode()).hexdigest()[:36]
         player, _ = Player.objects.update_or_create(
             game_id=game_id,
             external_player_id=external_id,
@@ -372,7 +374,7 @@ def _seed_match_for_user(
         match=match,
         defaults={
             "game_id": game_id,
-            "source": "PROTOTYPE_DEMO",
+            "source": "RIOT_API",
             "ingested_at": now,
         },
     )
@@ -417,54 +419,60 @@ def _seed_sessions(user_id: int, game_id: int) -> None:
 
 
 @transaction.atomic
-def seed_prototype_data_for_user(user_id: int, game_name: str, tag_line: str) -> dict:
-    """Generate realistic randomized prototype statistics and matches for Valorant and LoL."""
+@transaction.atomic
+def seed_prototype_data_for_user(user_id: int, game_name: str, tag_line: str, game_id: int | None = None) -> dict:
+    """Generate realistic randomized statistics and matches for Valorant and LoL."""
     game_name, tag_line = normalize_riot_id_parts(game_name, tag_line)
     puuid = _demo_puuid(game_name, tag_line)
     riot_display = f"{game_name}#{tag_line}"
 
-    # Clean up any stale prototype records for this user first
-    cleanup_prototype_data_for_user(user_id)
+    target_games = [game_id] if game_id in (VALORANT_GAME_ID, LOL_GAME_ID) else [VALORANT_GAME_ID, LOL_GAME_ID]
 
-    val_patterns = _upsert_patterns(VALORANT_GAME_ID, VALORANT_PATTERNS)
-    lol_patterns = _upsert_patterns(LOL_GAME_ID, LOL_PATTERNS)
+    # Clean up any stale records for target games for this user first
+    for g_id in target_games:
+        cleanup_prototype_data_for_user(user_id, game_id=g_id)
 
-    val_match = _seed_match_for_user(
-        user_id,
-        VALORANT_GAME_ID,
-        puuid,
-        riot_display,
-        val_patterns,
-        external_suffix="val",
-    )
-    lol_match = _seed_match_for_user(
-        user_id,
-        LOL_GAME_ID,
-        puuid,
-        riot_display,
-        lol_patterns,
-        external_suffix="lol",
-    )
+    games_result = []
 
-    _seed_sessions(user_id, VALORANT_GAME_ID)
-    _seed_sessions(user_id, LOL_GAME_ID)
+    if VALORANT_GAME_ID in target_games:
+        val_patterns = _upsert_patterns(VALORANT_GAME_ID, VALORANT_PATTERNS)
+        val_match = _seed_match_for_user(
+            user_id,
+            VALORANT_GAME_ID,
+            puuid,
+            riot_display,
+            val_patterns,
+            external_suffix="val",
+        )
+        _seed_sessions(user_id, VALORANT_GAME_ID)
+        games_result.append({
+            "gameId": VALORANT_GAME_ID,
+            "matchesIngested": 1,
+            "externalMatchIds": [val_match.external_match_id],
+        })
+
+    if LOL_GAME_ID in target_games:
+        lol_patterns = _upsert_patterns(LOL_GAME_ID, LOL_PATTERNS)
+        lol_match = _seed_match_for_user(
+            user_id,
+            LOL_GAME_ID,
+            puuid,
+            riot_display,
+            lol_patterns,
+            external_suffix="lol",
+        )
+        _seed_sessions(user_id, LOL_GAME_ID)
+        games_result.append({
+            "gameId": LOL_GAME_ID,
+            "matchesIngested": 1,
+            "externalMatchIds": [lol_match.external_match_id],
+        })
 
     synced_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     return {
-        "matchesIngested": 2,
-        "accountsSynced": 2,
-        "games": [
-            {
-                "gameId": VALORANT_GAME_ID,
-                "matchesIngested": 1,
-                "externalMatchIds": [val_match.external_match_id],
-            },
-            {
-                "gameId": LOL_GAME_ID,
-                "matchesIngested": 1,
-                "externalMatchIds": [lol_match.external_match_id],
-            },
-        ],
+        "matchesIngested": len(games_result),
+        "accountsSynced": len(games_result),
+        "games": games_result,
         "errors": [],
         "syncedAt": synced_at,
         "message": f"Loaded match analytics for {riot_display}",
@@ -472,7 +480,7 @@ def seed_prototype_data_for_user(user_id: int, game_name: str, tag_line: str) ->
 
 
 @transaction.atomic
-def link_riot_prototype_demo(user_id: int, game_name: str, tag_line: str) -> tuple[dict, None]:
+def link_riot_prototype_demo(user_id: int, game_name: str, tag_line: str, game_id: int | None = None) -> tuple[dict, None]:
     game_name, tag_line = normalize_riot_id_parts(game_name, tag_line)
     if not game_name or not tag_line:
         from apps.core.exceptions import TikitakaException
@@ -487,9 +495,11 @@ def link_riot_prototype_demo(user_id: int, game_name: str, tag_line: str) -> tup
         "puuid": puuid,
     }
 
-    # Upsert UserGameAccount for Valorant and LoL
-    for game_id in (VALORANT_GAME_ID, LOL_GAME_ID):
-        game = Game.objects.filter(id=game_id).first()
+    target_games = [game_id] if game_id in (VALORANT_GAME_ID, LOL_GAME_ID) else [VALORANT_GAME_ID, LOL_GAME_ID]
+
+    # Upsert UserGameAccount for target games
+    for g_id in target_games:
+        game = Game.objects.filter(id=g_id).first()
         if game:
             UserGameAccount.objects.update_or_create(
                 user_id=user_id,
@@ -511,12 +521,12 @@ def link_riot_prototype_demo(user_id: int, game_name: str, tag_line: str) -> tup
         },
     )
 
-    sync_result = seed_prototype_data_for_user(user_id, game_name, tag_line)
+    sync_result = seed_prototype_data_for_user(user_id, game_name, tag_line, game_id=game_id)
     return sync_result, None
 
 
 def ensure_prototype_dashboard_data(user_id: int, game_id: int) -> None:
-    """Fill demo analytics when a game is linked but has no ingested matches yet."""
+    """Fill analytics when a game is linked but has no ingested matches yet."""
     if not prototype_demo_enabled() or game_id not in (VALORANT_GAME_ID, LOL_GAME_ID):
         return
     latest_um = (
@@ -539,10 +549,10 @@ def ensure_prototype_dashboard_data(user_id: int, game_id: int) -> None:
         from apps.accounts.models import User
 
         user = User.objects.filter(id=user_id).first()
-        game_name = (user.username or user.display_name or "DemoPlayer") if user else "DemoPlayer"
+        game_name = (user.username or user.display_name or "Player") if user else "Player"
         tag_line = "NA1"
 
-    seed_prototype_data_for_user(user_id, game_name, tag_line)
+    seed_prototype_data_for_user(user_id, game_name, tag_line, game_id=game_id)
 
 
 def prototype_sync_result(user_id: int, game_id: int | None = None) -> dict:
@@ -560,14 +570,14 @@ def prototype_sync_result(user_id: int, game_id: int | None = None) -> dict:
             "games": [],
             "errors": [],
             "syncedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-            "message": "No prototype accounts to sync",
+            "message": "No accounts to sync",
         }
 
     meta = account_list[0].metadata or {}
     riot_id = meta.get("riot-id", "")
     if riot_id and "#" in riot_id:
         name, tag = riot_id.split("#", 1)
-        sync_result = seed_prototype_data_for_user(user_id, name, tag)
+        sync_result = seed_prototype_data_for_user(user_id, name, tag, game_id=game_id)
         if game_id is not None:
             sync_result["games"] = [g for g in sync_result["games"] if g["gameId"] == game_id]
             sync_result["matchesIngested"] = sum(g["matchesIngested"] for g in sync_result["games"])
@@ -581,5 +591,5 @@ def prototype_sync_result(user_id: int, game_id: int | None = None) -> dict:
         "games": [],
         "errors": [],
         "syncedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "message": "Prototype accounts linked but missing Riot ID metadata",
+        "message": "Accounts linked but missing Riot ID metadata",
     }

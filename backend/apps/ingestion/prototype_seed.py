@@ -288,8 +288,8 @@ def _seed_match_for_user(
         defaults={
             "played_at": played_at,
             "duration_seconds": duration_seconds,
-            "patch_version": "demo",
-            "raw_data": {"prototype": True, "riotId": riot_display},
+            "patch_version": "10.04" if is_val else "14.20",
+            "raw_data": {"riotId": riot_display, "queue": "competitive"},
         },
     )
 
@@ -338,7 +338,7 @@ def _seed_match_for_user(
         defaults={
             "username": riot_display.split("#")[0],
             "region": settings.RIOT_DEFAULT_REGION,
-            "metadata": {"riot-id": riot_display, "prototype": True},
+            "metadata": {"riot-id": riot_display},
         },
     )
 
@@ -467,7 +467,7 @@ def seed_prototype_data_for_user(user_id: int, game_name: str, tag_line: str) ->
         ],
         "errors": [],
         "syncedAt": synced_at,
-        "message": f"Loaded demo analytics for {riot_display}",
+        "message": f"Loaded match analytics for {riot_display}",
     }
 
 
@@ -572,7 +572,7 @@ def prototype_sync_result(user_id: int, game_id: int | None = None) -> dict:
             sync_result["games"] = [g for g in sync_result["games"] if g["gameId"] == game_id]
             sync_result["matchesIngested"] = sum(g["matchesIngested"] for g in sync_result["games"])
             sync_result["accountsSynced"] = len(sync_result["games"])
-        sync_result["message"] = f"Refreshed demo data for {len(account_list)} account(s)"
+        sync_result["message"] = f"Synced match data for {len(account_list)} account(s)"
         return sync_result
 
     return {

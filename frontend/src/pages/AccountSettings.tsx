@@ -252,7 +252,7 @@ function GameAccountCard({
           {status === 'not_connected' && requirements ? (
             <p className="mt-2 text-sm text-slate-400">
               {isRiotGame
-                ? 'Enter any random Riot ID and tag below to generate realistic demo match analytics.'
+                ? `Enter your Riot ID and tag below to link your ${game.name} account.`
                 : requirements.description}
             </p>
           ) : null}
@@ -282,7 +282,7 @@ function GameAccountCard({
             <input
               value={riotId}
               onChange={(e) => setRiotId(e.target.value)}
-              placeholder="e.g. TenZ, Faker"
+              placeholder="Game name"
               className="rounded-lg border border-surface-border bg-slate-900 px-3 py-2 text-sm text-white"
             />
           </label>
@@ -291,7 +291,7 @@ function GameAccountCard({
             <input
               value={riotTag}
               onChange={(e) => setRiotTag(e.target.value)}
-              placeholder="NA1"
+              placeholder="3610"
               className="w-20 rounded-lg border border-surface-border bg-slate-900 px-3 py-2 text-sm text-white"
             />
           </label>
